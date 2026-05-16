@@ -24,6 +24,7 @@
   - [Serve on Local Network](#serve-on-local-network-доступ-из-docker)
 - [Переменные в `docker-compose.yml`](#переменные-в-docker-composeyml)
 - [Схема БД](#схема-бд)
+- [Промпты разработки](#промпты-разработки)
 - [Makefile](#makefile)
 - [Устранение неполадок](#устранение-неполадок)
 
@@ -74,6 +75,7 @@ lesson04/
 │   └── db/
 ├── docker-compose.yml
 ├── Makefile          # сборка, статус, логи
+├── prompts.md        # промпты при разработке (Cursor)
 ├── .env.example
 └── .env              # не в git
 ```
@@ -332,6 +334,23 @@ docker compose exec ai node -e "fetch('http://host.docker.internal:1234/v1/model
 ```bash
 make reset-db
 ```
+
+---
+
+## Промпты разработки
+
+Хронология запросов к AI-ассистенту (Cursor) при создании проекта — от Docker/Slim/Vue до LangChain и управления задачами текстом:
+
+**[prompts.md](prompts.md)**
+
+Там же краткие комментарии к отдельным шагам (CORS, Slim 4, LM Studio и т.д.).
+
+Системные промпты **рантайма** (разбор команд `POST /ai/tasks`) задаются в коде:
+
+| Файл | Назначение |
+|------|------------|
+| `ai/src/taskIntentSchema.js` | `TASK_INTENT_SYSTEM` — выбор действия (create, filter, update_many, …) |
+| `ai/src/taskAssistant.js` | `CHAT_SYSTEM` — ответ без изменения задач (`action: none`) |
 
 ---
 
