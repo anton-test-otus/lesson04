@@ -33,7 +33,7 @@ header h1 {
   display: flex;
   flex-wrap: wrap;
   gap: 1rem;
-  margin: 0.75rem 0 0;
+  margin: 0.75rem 0 1.25rem;
 }
 
 .status {
@@ -47,6 +47,10 @@ header h1 {
 
 .status-error {
   color: #fca5a5;
+}
+
+.status-muted {
+  color: #8b9cb3;
 }
 
 .form {

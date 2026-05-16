@@ -2,6 +2,7 @@ import { ChatOllama } from '@langchain/ollama';
 import { ChatOpenAI } from '@langchain/openai';
 import { getProviderConfig, normalizeProvider, PROVIDERS } from './providers.js';
 import { checkProviderHealth } from './providerHealth.js';
+import { getTasksAgentStatus } from './tasksAgentMode.js';
 
 export { PROVIDERS, normalizeProvider };
 
@@ -23,6 +24,7 @@ export function listProviders() {
       openai: 'https://api.openai.com/v1',
     },
     resolvedModel: config.model,
+    tasksAgent: getTasksAgentStatus(configured),
   };
 }
 

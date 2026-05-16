@@ -64,7 +64,8 @@ export function buildTaskTools() {
       },
       {
         name: 'create_tasks_batch',
-        description: 'Создать несколько задач (массив названий)',
+        description:
+          'Создать несколько задач (массив названий; для списка «добавь задачи:» + строки или через запятую)',
         schema: z.object({
           titles: z.array(z.string()).min(1),
         }),
@@ -87,7 +88,7 @@ export function buildTaskTools() {
       }
     ),
     tool(
-      async ({ q, priorities, burning_only, ids, set_priority, set_is_burning }) => {
+      async ({ q, priorities, burning_only, ids, set_priority, set_is_burning, bump_priority }) => {
         const intent = {
           action: 'update_many',
           q,
@@ -96,6 +97,7 @@ export function buildTaskTools() {
           ids,
           set_priority,
           set_is_burning,
+          bump_priority,
         };
         const result = await executeTaskIntent(intent);
         return JSON.stringify(result);
@@ -103,7 +105,7 @@ export function buildTaskTools() {
       {
         name: 'update_tasks_bulk',
         description:
-          'Выбрать задачи (q, priorities, burning_only, ids) и задать set_priority и/или set_is_burning',
+          'Отбор задач (q, priorities, burning_only, ids); изменить set_priority, bump_priority (up/down), set_is_burning',
         schema: z
           .object({
             q: z.string().optional().nullable(),
@@ -112,9 +114,17 @@ export function buildTaskTools() {
             ids: z.array(z.number().int().positive()).optional(),
             set_priority: prioritySchema.optional(),
             set_is_burning: z.boolean().optional(),
+            bump_priority: z.enum(['up', 'down']).optional(),
           })
-          .refine((d) => d.set_priority !== undefined || d.set_is_burning !== undefined, {
-            message: 'set_priority or set_is_burning required',
+          .refine(
+            (d) =>
+              d.set_priority !== undefined ||
+              d.set_is_burning !== undefined ||
+              d.bump_priority !== undefined,
+            { message: 'set_priority, bump_priority or set_is_burning required' }
+          )
+          .refine((d) => !(d.set_priority !== undefined && d.bump_priority !== undefined), {
+            message: 'set_priority or bump_priority, not both',
           }),
       }
     ),

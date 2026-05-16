@@ -1,4 +1,18 @@
+import { bumpPriorityDown, bumpPriorityUp } from './priorityLadder.js';
 import * as tasksApi from './tasksApi.js';
+
+function resolvePriority(current, intent) {
+  if (intent.bump_priority === 'up') {
+    return bumpPriorityUp(current.priority);
+  }
+  if (intent.bump_priority === 'down') {
+    return bumpPriorityDown(current.priority);
+  }
+  if (intent.set_priority !== undefined) {
+    return intent.set_priority;
+  }
+  return current.priority;
+}
 
 async function selectTasks(intent) {
   if (intent.ids?.length) {
@@ -58,8 +72,15 @@ export async function executeTaskIntent(intent) {
       return { kind: 'task', task };
     }
     case 'update_many': {
-      if (intent.set_priority === undefined && intent.set_is_burning === undefined) {
-        throw new Error('Укажите set_priority и/или set_is_burning');
+      if (
+        intent.set_priority === undefined &&
+        intent.set_is_burning === undefined &&
+        !intent.bump_priority
+      ) {
+        throw new Error('Укажите set_priority, bump_priority и/или set_is_burning');
+      }
+      if (intent.set_priority !== undefined && intent.bump_priority) {
+        throw new Error('Нельзя указывать set_priority и bump_priority одновременно');
       }
 
       const targets = await selectTasks(intent);
@@ -73,7 +94,7 @@ export async function executeTaskIntent(intent) {
       for (const current of targets) {
         const task = await tasksApi.updateTask(current.id, {
           title: current.title,
-          priority: intent.set_priority ?? current.priority,
+          priority: resolvePriority(current, intent),
           is_burning: intent.set_is_burning ?? current.is_burning,
         });
         updated.push(task);
@@ -107,11 +128,15 @@ export function buildReply(intent, result) {
         return 'Подходящих задач не найдено — ничего не обновлено.';
       }
       const parts = [];
-      if (intent.set_priority !== undefined) {
+      if (intent.bump_priority === 'up') {
+        parts.push('приоритет ↑');
+      } else if (intent.bump_priority === 'down') {
+        parts.push('приоритет ↓');
+      } else if (intent.set_priority !== undefined) {
         parts.push(`приоритет → ${intent.set_priority}`);
       }
       if (intent.set_is_burning !== undefined) {
-        parts.push(intent.set_is_burning ? 'горящие' : 'не горящие');
+        parts.push(intent.set_is_burning ? 'зажгли 🔥' : 'потушили');
       }
       const lines = result.updated.map(
         (t) => `• #${t.id} «${t.title}» — п.${t.priority}${t.is_burning ? ', 🔥' : ''}`

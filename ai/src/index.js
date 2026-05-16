@@ -5,6 +5,9 @@ import { createChatModel, listProviders } from './llm.js';
 import { diagnoseConnections } from './providerProbe.js';
 import { humanizeError } from './formatError.js';
 import { checkProviderHealth, formatLlmError } from './providerHealth.js';
+import { aiError, aiSuccess } from './taskResponse.js';
+import { logAiRequest } from './requestLog.js';
+import { getTasksAgentStatus } from './tasksAgentMode.js';
 import { handleTaskMessage } from './taskAssistant.js';
 
 const app = express();
@@ -27,6 +30,7 @@ async function healthPayload(providerOverride) {
     status: provider.status === 'ok' ? 'ok' : 'degraded',
     service: 'ai',
     provider,
+    tasksAgent: getTasksAgentStatus(providerOverride),
   };
 }
 
@@ -63,39 +67,78 @@ async function diagnoseHandler(_req, res) {
 }
 
 async function handleTasks(req, res) {
+  const started = Date.now();
   const { message, provider, useAgent } = req.body ?? {};
+  const requestText = typeof message === 'string' ? message.trim() : '';
+  const requestMeta = {
+    provider: provider ?? null,
+    useAgent: Boolean(useAgent),
+  };
 
-  if (!message || typeof message !== 'string' || !message.trim()) {
-    return res.status(422).json({ error: 'Укажите текст сообщения' });
+  if (!requestText) {
+    const body = aiError('Укажите текст сообщения');
+    await logAiRequest({
+      route: 'POST /tasks',
+      requestText: '',
+      request: requestMeta,
+      response: body,
+      httpStatus: 422,
+      durationMs: Date.now() - started,
+    });
+    return res.status(422).json(body);
   }
 
   const providerName = provider || process.env.AI_PROVIDER || 'ollama';
 
   try {
-    const result = await handleTaskMessage(message, providerName, {
+    const result = await handleTaskMessage(requestText, providerName, {
       useAgent: Boolean(useAgent),
     });
 
-    res.json({
-      reply: result.reply,
-      provider: providerName,
-      action: result.action,
-      data: result.data,
-      tasks: result.tasks,
+    await logAiRequest({
+      route: 'POST /tasks',
+      requestText,
+      request: requestMeta,
+      response: result,
+      httpStatus: 200,
+      durationMs: Date.now() - started,
     });
+    res.json(result);
   } catch (error) {
     console.error('[ai/tasks]', error);
-    res.status(502).json({
-      error: formatLlmError(error, providerName),
+    const body = aiError(formatLlmError(error, providerName));
+    await logAiRequest({
+      route: 'POST /tasks',
+      requestText,
+      request: requestMeta,
+      response: body,
+      httpStatus: 502,
+      durationMs: Date.now() - started,
     });
+    res.status(502).json(body);
   }
 }
 
 async function handleChat(req, res) {
+  const started = Date.now();
   const { message, provider, system } = req.body ?? {};
+  const requestText = typeof message === 'string' ? message.trim() : '';
+  const requestMeta = {
+    provider: provider ?? null,
+    hasSystem: Boolean(system && typeof system === 'string' && system.trim()),
+  };
 
-  if (!message || typeof message !== 'string' || !message.trim()) {
-    return res.status(422).json({ error: 'Укажите текст сообщения' });
+  if (!requestText) {
+    const body = aiError('Укажите текст сообщения');
+    await logAiRequest({
+      route: 'POST /chat',
+      requestText: '',
+      request: requestMeta,
+      response: body,
+      httpStatus: 422,
+      durationMs: Date.now() - started,
+    });
+    return res.status(422).json(body);
   }
 
   const providerName = provider || process.env.AI_PROVIDER || 'ollama';
@@ -108,7 +151,7 @@ async function handleChat(req, res) {
       messages.push(new SystemMessage(system.trim()));
     }
 
-    messages.push(new HumanMessage(message.trim()));
+    messages.push(new HumanMessage(requestText));
 
     const response = await model.invoke(messages);
     const text =
@@ -116,16 +159,32 @@ async function handleChat(req, res) {
         ? response.content
         : response.content.map((part) => (part.type === 'text' ? part.text : '')).join('');
 
-    res.json({
-      reply: text,
+    const body = aiSuccess('Ответ ассистента', {
+      message: text,
       provider: providerName,
       model: response.response_metadata?.model ?? null,
     });
+    await logAiRequest({
+      route: 'POST /chat',
+      requestText,
+      request: requestMeta,
+      response: body,
+      httpStatus: 200,
+      durationMs: Date.now() - started,
+    });
+    res.json(body);
   } catch (error) {
     console.error('[ai/chat]', error);
-    res.status(502).json({
-      error: formatLlmError(error, providerName),
+    const body = aiError(formatLlmError(error, providerName));
+    await logAiRequest({
+      route: 'POST /chat',
+      requestText,
+      request: requestMeta,
+      response: body,
+      httpStatus: 502,
+      durationMs: Date.now() - started,
     });
+    res.status(502).json(body);
   }
 }
 

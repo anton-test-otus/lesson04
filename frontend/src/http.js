@@ -41,6 +41,14 @@ export function extractApiError(data, fallback) {
   if (!data || typeof data !== 'object') {
     return fallback;
   }
+  if (data.status === 'error' && data.errors) {
+    if (Array.isArray(data.errors)) {
+      return data.errors.filter(Boolean).join('; ') || fallback;
+    }
+    if (typeof data.errors === 'string') {
+      return data.errors;
+    }
+  }
   if (typeof data.error === 'string' && !looksLikeJson(data.error)) {
     return data.error;
   }

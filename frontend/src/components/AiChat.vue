@@ -8,7 +8,6 @@ const providers = ref(null);
 const selectedProvider = ref('');
 const message = ref('');
 const reply = ref('');
-const lastAction = ref('');
 const loading = ref(false);
 const error = ref('');
 
@@ -26,22 +25,36 @@ async function send() {
   loading.value = true;
   error.value = '';
   reply.value = '';
-  lastAction.value = '';
   try {
     const result = await api.aiTasks({
       message: message.value.trim(),
       provider: selectedProvider.value || undefined,
     });
-    reply.value = result.reply;
-    lastAction.value = result.action || '';
-    if (result.tasks) {
-      emit('tasks-changed', result.tasks);
+    if (result.status === 'error') {
+      const errors = result.errors;
+      error.value = Array.isArray(errors)
+        ? errors.join('; ')
+        : errors || 'Не удалось выполнить команду';
+      return;
+    }
+    reply.value = result.action || '';
+    const tasks = result.data?.tasks;
+    if (Array.isArray(tasks)) {
+      emit('tasks-changed', tasks);
     }
   } catch (e) {
     error.value = e.message;
   } finally {
     loading.value = false;
   }
+}
+
+function onTextareaKeydown(event) {
+  if (event.key !== 'Enter' || (!event.ctrlKey && !event.metaKey)) {
+    return;
+  }
+  event.preventDefault();
+  send();
 }
 </script>
 
@@ -53,8 +66,8 @@ async function send() {
       <span v-if="providers.resolvedModel"> · модель: {{ providers.resolvedModel }}</span>
     </p>
     <p class="ai-hint">
-      Примеры: «создай задачу купить молоко», «покажи горящие с приоритетом 1», «удали задачу 3»,
-      «найди настрой*», «задачи с приоритетом 2 сделай горящими», «всем задачам поставь приоритет 3».
+      Примеры: «создай задачу купить молоко», список «добавь задачи:» и с новой строки пункты (с «-» или без),
+      «покажи горящие», «потуши Docker», «подними приоритет» у отобранных.
     </p>
 
     <label class="field">
@@ -70,8 +83,9 @@ async function send() {
       <textarea
         v-model="message"
         rows="3"
-        placeholder="Команда на естественном языке..."
+        placeholder="Команда на естественном языке... (Ctrl+Enter — выполнить)"
         :disabled="loading"
+        @keydown="onTextareaKeydown"
       />
       <button type="submit" :disabled="loading || !message.trim()">
         {{ loading ? 'Обрабатываю...' : 'Выполнить' }}
@@ -79,7 +93,6 @@ async function send() {
     </form>
 
     <p v-if="error" class="error">{{ error }}</p>
-    <p v-if="lastAction" class="ai-action">Действие: {{ lastAction }}</p>
     <section v-if="reply" class="ai-reply">
       <span class="ai-reply-label">Ответ</span>
       <p class="ai-reply-text">{{ reply }}</p>

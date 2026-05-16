@@ -1,4 +1,4 @@
-.PHONY: help up build stop down restart ps status logs logs-api logs-ai logs-frontend logs-nginx logs-db \
+.PHONY: help up build stop down restart ps status logs logs-api logs-ai logs-ai-requests logs-frontend logs-nginx logs-db \
 	reload rebuild env health reset-db
 
 COMPOSE := docker compose
@@ -14,7 +14,8 @@ help:
 	@echo "  make restart     То же, что reload"
 	@echo "  make ps          Статус сервисов (status)"
 	@echo "  make logs        Логи всех сервисов (-f)"
-	@echo "  make logs-ai     Логи сервиса ai"
+	@echo "  make logs-ai     Логи сервиса ai (stdout)"
+	@echo "  make logs-ai-requests  Журнал POST /ai/tasks и /ai/chat"
 	@echo "  make logs-api    Логи сервиса api"
 	@echo "  make logs-frontend / logs-nginx / logs-db"
 	@echo "  make rebuild     Сборка без кэша и запуск"
@@ -48,6 +49,9 @@ logs:
 
 logs-ai:
 	$(COMPOSE) logs -f ai
+
+logs-ai-requests:
+	tail -f ai/logs/requests.jsonl
 
 logs-api:
 	$(COMPOSE) logs -f api

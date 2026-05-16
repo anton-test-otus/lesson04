@@ -10,6 +10,7 @@ const loading = ref(false);
 const error = ref('');
 const apiStatus = ref('');
 const aiStatus = ref('');
+const agentStatus = ref('');
 const editingTask = ref(null);
 
 async function checkServices() {
@@ -29,8 +30,10 @@ async function checkServices() {
     } else {
       aiStatus.value = health.status === 'ok' ? 'ok' : health.status;
     }
+    agentStatus.value = health.tasksAgent?.label ?? 'off';
   } catch (e) {
     aiStatus.value = e.message;
+    agentStatus.value = '';
   }
 }
 
@@ -49,6 +52,10 @@ async function loadTasks() {
 
 function statusClass(status) {
   return status === 'ok' ? 'status-ok' : 'status-error';
+}
+
+function agentStatusClass(label) {
+  return label === 'on' ? 'status-ok' : 'status-muted';
 }
 
 function onAiTasksChanged(newTasks) {
@@ -98,12 +105,15 @@ onMounted(loadTasks);
     <header>
       <h1>Задачи</h1>
       <p class="subtitle">Slim PHP API + Vue + Nginx (Docker)</p>
-      <div v-if="apiStatus || aiStatus" class="status-row">
+      <div v-if="apiStatus || aiStatus || agentStatus" class="status-row">
         <p v-if="apiStatus" class="status" :class="statusClass(apiStatus)">
           API: {{ apiStatus }}
         </p>
         <p v-if="aiStatus" class="status" :class="statusClass(aiStatus)">
           AI: {{ aiStatus }}
+        </p>
+        <p v-if="agentStatus" class="status" :class="agentStatusClass(agentStatus)">
+          Agent: {{ agentStatus }}
         </p>
       </div>
     </header>

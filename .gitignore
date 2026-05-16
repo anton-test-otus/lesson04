@@ -3,4 +3,5 @@
 /dist/
 .env
 *.log
+ai/logs/*.jsonl
 ai/node_modules/
