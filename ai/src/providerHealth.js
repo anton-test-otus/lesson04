@@ -54,29 +54,8 @@ function buildHint(provider) {
   return 'Запустите Ollama на хосте (ollama serve). Диагностика: GET /ai/diagnose';
 }
 
+import { humanizeError } from './formatError.js';
+
 export function formatLlmError(error, provider) {
-  const message = error instanceof Error ? error.message : String(error);
-  const name = normalizeProvider(provider);
-
-  if (/connection error|fetch failed|econnrefused|enotfound|network|timed out/i.test(message)) {
-    if (name === 'lmstudio') {
-      return (
-        'Нет связи с LM Studio из Docker. ' +
-        'localhost:1234 в .env не подходит (это контейнер, не ПК). ' +
-        'Включите lms server start --bind 0.0.0.0 или откройте /ai/diagnose'
-      );
-    }
-    if (name === 'ollama') {
-      return 'Нет связи с Ollama из Docker. Запустите ollama serve; не используйте localhost в .env.';
-    }
-    return `Нет связи с ${name}: ${message}`;
-  }
-
-  if (/model.*not found|404/i.test(message)) {
-    return (
-      `Модель не найдена (${name}). Проверьте LMSTUDIO_MODEL / OLLAMA_MODEL по списку /models.`
-    );
-  }
-
-  return message;
+  return humanizeError(error, provider);
 }

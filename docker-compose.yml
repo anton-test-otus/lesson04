@@ -57,6 +57,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
+      TASKS_API_BASE_URL: http://api
       AI_PROVIDER: ${AI_PROVIDER:-ollama}
       AI_TEMPERATURE: ${AI_TEMPERATURE:-0.7}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}

@@ -1,3 +1,4 @@
+-- Initial schema (runs once on first `docker compose up` when db volume is empty).
 CREATE TABLE IF NOT EXISTS tasks (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     title VARCHAR(255) NOT NULL,

@@ -2,10 +2,13 @@
 import { onMounted, ref } from 'vue';
 import { api } from '../api';
 
+const emit = defineEmits(['tasks-changed']);
+
 const providers = ref(null);
 const selectedProvider = ref('');
 const message = ref('');
 const reply = ref('');
+const lastAction = ref('');
 const loading = ref(false);
 const error = ref('');
 
@@ -23,13 +26,17 @@ async function send() {
   loading.value = true;
   error.value = '';
   reply.value = '';
+  lastAction.value = '';
   try {
-    const result = await api.aiChat({
+    const result = await api.aiTasks({
       message: message.value.trim(),
       provider: selectedProvider.value || undefined,
-      system: 'Ты помощник в приложении для задач. Отвечай кратко на русском.',
     });
     reply.value = result.reply;
+    lastAction.value = result.action || '';
+    if (result.tasks) {
+      emit('tasks-changed', result.tasks);
+    }
   } catch (e) {
     error.value = e.message;
   } finally {
@@ -40,10 +47,14 @@ async function send() {
 
 <template>
   <section class="ai-chat">
-    <h2>AI (LangChain.js)</h2>
+    <h2>Управление задачами</h2>
     <p v-if="providers" class="ai-meta">
       Провайдер: <strong>{{ providers.default }}</strong>
       <span v-if="providers.resolvedModel"> · модель: {{ providers.resolvedModel }}</span>
+    </p>
+    <p class="ai-hint">
+      Примеры: «создай задачу купить молоко», «покажи горящие с приоритетом 1», «удали задачу 3»,
+      «найди настрой*», «задачи с приоритетом 2 сделай горящими», «всем задачам поставь приоритет 3».
     </p>
 
     <label class="field">
@@ -59,18 +70,19 @@ async function send() {
       <textarea
         v-model="message"
         rows="3"
-        placeholder="Сообщение модели..."
+        placeholder="Команда на естественном языке..."
         :disabled="loading"
       />
       <button type="submit" :disabled="loading || !message.trim()">
-        {{ loading ? 'Думаю...' : 'Отправить' }}
+        {{ loading ? 'Обрабатываю...' : 'Выполнить' }}
       </button>
     </form>
 
     <p v-if="error" class="error">{{ error }}</p>
-    <div v-if="reply" class="ai-reply">
+    <p v-if="lastAction" class="ai-action">Действие: {{ lastAction }}</p>
+    <section v-if="reply" class="ai-reply">
       <span class="ai-reply-label">Ответ</span>
-      <p>{{ reply }}</p>
-    </div>
+      <p class="ai-reply-text">{{ reply }}</p>
+    </section>
   </section>
 </template>

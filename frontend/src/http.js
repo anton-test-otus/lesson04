@@ -32,9 +32,23 @@ export async function readJsonResponse(response) {
   }
 }
 
+function looksLikeJson(text) {
+  const t = String(text).trim();
+  return (t.startsWith('{') && t.endsWith('}')) || (t.startsWith('[') && t.endsWith(']'));
+}
+
 export function extractApiError(data, fallback) {
-  if (data && typeof data === 'object' && 'error' in data && data.error) {
-    return String(data.error);
+  if (!data || typeof data !== 'object') {
+    return fallback;
+  }
+  if (typeof data.error === 'string' && !looksLikeJson(data.error)) {
+    return data.error;
+  }
+  if (typeof data.message === 'string' && !looksLikeJson(data.message)) {
+    return data.message;
+  }
+  if (typeof data.error === 'string' && looksLikeJson(data.error)) {
+    return fallback;
   }
   return fallback;
 }

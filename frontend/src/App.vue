@@ -3,17 +3,14 @@ import { onMounted, ref } from 'vue';
 import { api } from './api';
 import { priorityLabel } from './constants';
 import TaskEditModal from './components/TaskEditModal.vue';
-import TaskFilters from './components/TaskFilters.vue';
 import AiChat from './components/AiChat.vue';
 
 const tasks = ref([]);
-const title = ref('');
 const loading = ref(false);
 const error = ref('');
 const apiStatus = ref('');
 const aiStatus = ref('');
 const editingTask = ref(null);
-const activeFilters = ref(null);
 
 async function checkServices() {
   try {
@@ -42,9 +39,7 @@ async function loadTasks() {
   error.value = '';
   await checkServices();
   try {
-    tasks.value = activeFilters.value
-      ? await api.filterTasks(activeFilters.value)
-      : await api.getTasks();
+    tasks.value = await api.getTasks();
   } catch (e) {
     error.value = e.message;
   } finally {
@@ -56,34 +51,9 @@ function statusClass(status) {
   return status === 'ok' ? 'status-ok' : 'status-error';
 }
 
-function applyFilters(filters) {
-  const hasFilters =
-    filters.q ||
-    (filters.priorities && filters.priorities.length > 0) ||
-    filters.burningOnly;
-  activeFilters.value = hasFilters ? filters : null;
-  loadTasks();
-}
-
-function resetFilters() {
-  activeFilters.value = null;
-  loadTasks();
-}
-
-async function addTask() {
-  if (!title.value.trim()) return;
+function onAiTasksChanged(newTasks) {
+  tasks.value = newTasks;
   error.value = '';
-  try {
-    if (title.value.includes(',')) {
-      await api.createTasksBatch(title.value);
-    } else {
-      await api.createTask(title.value.trim());
-    }
-    title.value = '';
-    await loadTasks();
-  } catch (e) {
-    error.value = e.message;
-  }
 }
 
 function openEdit(task) {
@@ -138,19 +108,7 @@ onMounted(loadTasks);
       </div>
     </header>
 
-    <TaskFilters @apply="applyFilters" @reset="resetFilters" />
-
-    <form class="form" @submit.prevent="addTask">
-      <input
-        v-model="title"
-        type="text"
-        placeholder="Задача или несколько через запятую..."
-        :disabled="loading"
-      />
-      <button type="submit" :disabled="loading || !title.trim()">
-        Добавить
-      </button>
-    </form>
+    <AiChat @tasks-changed="onAiTasksChanged" />
 
     <p v-if="error" class="error">{{ error }}</p>
     <p v-if="loading" class="hint">Загрузка...</p>
@@ -181,11 +139,7 @@ onMounted(loadTasks);
       </li>
     </ul>
 
-    <p v-if="!loading && tasks.length === 0" class="hint">
-      {{ activeFilters ? 'Ничего не найдено' : 'Список пуст' }}
-    </p>
-
-    <AiChat />
+    <p v-if="!loading && tasks.length === 0" class="hint">Список пуст</p>
 
     <TaskEditModal
       :task="editingTask"

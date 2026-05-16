@@ -33,8 +33,12 @@ async function request(path, options = {}, service = 'API') {
 
 function wrapAi(promise) {
   return promise.catch((error) => {
-    if (isJsonParseError(error.message)) {
-      throw new Error(`AI: некорректный JSON — ${error.message}`);
+    const raw = error?.message || '';
+    if (isJsonParseError(raw)) {
+      throw new Error('AI: не удалось обработать ответ сервера. Попробуйте ещё раз.');
+    }
+    if (/^\s*[\[{]/.test(raw)) {
+      throw new Error('AI: не удалось обработать запрос. Переформулируйте команду.');
     }
     throw error;
   });
@@ -80,6 +84,17 @@ export const api = {
         {
           method: 'POST',
           body: JSON.stringify({ message, provider, system }),
+        },
+        'AI'
+      )
+    ),
+  aiTasks: ({ message, provider, useAgent }) =>
+    wrapAi(
+      request(
+        '/ai/tasks',
+        {
+          method: 'POST',
+          body: JSON.stringify({ message, provider, useAgent }),
         },
         'AI'
       )

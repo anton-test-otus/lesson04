@@ -4,6 +4,29 @@
 
 Единая точка входа: **http://localhost** (порт 80, reverse proxy).
 
+## Содержание
+
+- [Возможности](#возможности)
+- [Архитектура](#архитектура)
+- [Структура проекта](#структура-проекта)
+- [Быстрый старт](#быстрый-старт)
+- [REST API](#rest-api)
+  - [Задачи (PHP, `/api/tasks`)](#задачи-php-apitasks)
+  - [AI (Node, `/ai`)](#ai-node-ai)
+- [Переменные окружения (`.env`)](#переменные-окружения-env)
+  - [Правила](#правила)
+  - [AI-сервис](#ai-сервис)
+  - [Примеры `.env`](#примеры-env)
+  - [Настройка моделей](#настройка-моделей)
+  - [Команды задач (`POST /ai/tasks`)](#команды-задач-post-aitasks)
+- [LM Studio и Docker](#lm-studio-и-docker)
+  - [Два разных URL](#два-разных-url)
+  - [Serve on Local Network](#serve-on-local-network-доступ-из-docker)
+- [Переменные в `docker-compose.yml`](#переменные-в-docker-composeyml)
+- [Схема БД](#схема-бд)
+- [Makefile](#makefile)
+- [Устранение неполадок](#устранение-неполадок)
+
 ---
 
 ## Возможности
@@ -50,6 +73,7 @@ lesson04/
 │   ├── nginx/
 │   └── db/
 ├── docker-compose.yml
+├── Makefile          # сборка, статус, логи
 ├── .env.example
 └── .env              # не в git
 ```
@@ -59,20 +83,16 @@ lesson04/
 ## Быстрый старт
 
 ```bash
-cp .env.example .env
-# Настройте AI_PROVIDER и URL провайдера (см. ниже)
+make env          # .env из .env.example (если ещё нет)
+# настройте AI_PROVIDER и URL провайдера в .env
 
-docker compose up --build
+make up           # сборка и запуск в фоне
+make health       # проверка API и AI
 ```
 
 Откройте **http://localhost**.
 
-Проверка:
-
-```bash
-curl http://localhost/api/health
-curl http://localhost/ai/health
-```
+Список команд: `make` или `make help`.
 
 ---
 
@@ -115,7 +135,8 @@ curl "http://localhost/api/tasks/filter?q=Наст*ить&priority=1&burning_onl
 | `GET` | `/ai/ping` | Быстрая проверка (без LM Studio) |
 | `GET` | `/ai/diagnose` | Проверка URL провайдера из `.env`, таблица `probes` |
 | `GET` | `/ai/providers` | Список провайдеров и настроек |
-| `POST` | `/ai/chat` | Чат: `{ "message": "...", "provider": "lmstudio", "system": "..." }` |
+| `POST` | `/ai/chat` | Свободный чат: `{ "message": "...", "provider": "lmstudio", "system": "..." }` |
+| `POST` | `/ai/tasks` | Команды задач на естественном языке (LangChain → PHP API) |
 
 ---
 
@@ -149,6 +170,8 @@ curl "http://localhost/api/tasks/filter?q=Наст*ить&priority=1&burning_onl
 | `LMSTUDIO_API_KEY` | `lm-studio` | Ключ (LM Studio часто принимает любую строку) |
 | `OPENAI_API_KEY` | — | Ключ OpenAI |
 | `OPENAI_MODEL` | `gpt-4o-mini` | Модель OpenAI |
+| `TASKS_API_BASE_URL` | `http://api` | URL PHP API из контейнера `ai` (в compose задано) |
+| `AI_TASKS_USE_AGENT` | — | `true` — tool-calling agent (lmstudio/openai) вместо structured output |
 
 ### Примеры `.env`
 
@@ -195,6 +218,31 @@ curl -s http://localhost/ai/providers | jq
 - `model` — модель, которую использует сервис (из `.env` или первая доступная при несовпадении).
 - `modelMatched: false` — в `.env` указано имя, которого нет у провайдера; поправьте `*_MODEL`.
 - В чате можно передать `"provider": "lmstudio"` / `"ollama"` / `"openai"` в теле `POST /ai/chat` (иначе берётся `AI_PROVIDER`).
+
+### Команды задач на естественном языке (`POST /ai/tasks`)
+
+LangChain разбирает запрос и вызывает REST API задач (`/api/tasks`, `/api/tasks/filter`, …).
+
+```bash
+curl -X POST http://localhost/ai/tasks \
+  -H "Content-Type: application/json" \
+  -d '{"message":"создай горящую задачу срочно позвонить клиенту с приоритетом 1","provider":"lmstudio"}'
+```
+
+Ответ: `reply` (текст), `action` (`create`, `filter`, `list`, …), `tasks` (обновлённый список, если применимо).
+
+Примеры фраз в UI:
+
+| Запрос | Действие API |
+|--------|----------------|
+| «покажи все задачи» | `GET /api/tasks` |
+| «найди настрой* с приоритетом 1» | `GET /api/tasks/filter` |
+| «создай задачу купить молоко» | `POST /api/tasks` |
+| «добавь задачи: отчёт, созвон» | `POST /api/tasks/batch` |
+| «измени задачу 2 — название …» | `POST /api/tasks/{id}/update` |
+| «задачи с приоритетом 3 сделай горящими» | `update_many` → filter + несколько `POST …/update` |
+| «всем задачам поставь приоритет 2» | `update_many` (все задачи) |
+| «удали задачу 5» | `DELETE /api/tasks/{id}` |
 
 ---
 
@@ -275,44 +323,55 @@ docker compose exec ai node -e "fetch('http://host.docker.internal:1234/v1/model
 
 ---
 
-## Миграция БД (существующий volume)
+## Схема БД
 
-Если БД создана до полей `priority` / `is_burning`:
+При первом запуске MySQL выполняет `docker/db/init.sql` (таблица `tasks` с `priority`, `is_burning`).
 
-```bash
-docker compose exec -T db mysql -uapp -psecret app < docker/db/migrate-priority-burning.sql
-```
-
-Или пересоздать volume:
+Если volume уже был создан со старой схемой без этих полей — пересоздайте БД:
 
 ```bash
-docker compose down -v
-docker compose up --build
+make reset-db
 ```
 
 ---
 
-## Полезные команды
+## Makefile
+
+| Команда | Действие |
+|---------|----------|
+| `make` / `make help` | Список целей |
+| `make env` | Создать `.env` из `.env.example` |
+| `make up` | Сборка образов и запуск (`docker compose up --build -d`) |
+| `make build` | То же, что `up` |
+| `make stop` | Остановить контейнеры (без удаления) |
+| `make down` | Остановить и удалить контейнеры |
+| `make reload` / `make restart` | Перезапуск без пересборки |
+| `make ps` / `make status` | Статус сервисов |
+| `make logs` | Логи всех сервисов (follow) |
+| `make logs-ai` | Логи `ai` |
+| `make logs-api` | Логи `api` |
+| `make logs-frontend` | Логи `frontend` |
+| `make logs-nginx` | Логи `nginx` |
+| `make logs-db` | Логи `db` |
+| `make rebuild` | Сборка без кэша и запуск |
+| `make reset-db` | `down -v` + `up` (новая БД из `init.sql`) |
+| `make health` | `curl` к `/api/health` и `/ai/health` |
+
+После правки `.env` или кода AI:
 
 ```bash
-# Запуск / пересборка
-docker compose up --build -d
-
-# Только AI после правки .env
+make reload
+# или пересборка только ai:
 docker compose up -d --build ai
+```
 
-# Логи
-docker compose logs -f ai
+Проверка задач и чата:
 
-# Проверка API
-curl http://localhost/api/health
+```bash
 curl http://localhost/api/tasks
-
-# Проверка AI
-curl http://localhost/ai/health
-curl -X POST http://localhost/ai/chat \
+curl -X POST http://localhost/ai/tasks \
   -H "Content-Type: application/json" \
-  -d '{"message":"Привет","provider":"lmstudio"}'
+  -d '{"message":"покажи все задачи","provider":"lmstudio"}'
 ```
 
 ---
@@ -337,5 +396,5 @@ curl -s http://localhost/ai/diagnose | jq
 | Симптом | Решение |
 |---------|---------|
 | `Connection error` в чате | `/ai/diagnose` → `probes`; проверьте `--bind 0.0.0.0` |
-| `502` на `/ai/*` | `curl http://localhost:3000/ping`, `docker compose logs ai` |
+| `502` на `/ai/*` | `curl http://localhost:3000/ping`, `make logs-ai` |
 | Статус **AI** не `ok` | `curl http://localhost/ai/health` |

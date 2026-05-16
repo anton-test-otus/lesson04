@@ -3,7 +3,9 @@ import express from 'express';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { createChatModel, listProviders } from './llm.js';
 import { diagnoseConnections } from './providerProbe.js';
+import { humanizeError } from './formatError.js';
 import { checkProviderHealth, formatLlmError } from './providerHealth.js';
+import { handleTaskMessage } from './taskAssistant.js';
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -40,7 +42,7 @@ async function healthHandler(req, res) {
     res.status(503).json({
       status: 'error',
       service: 'ai',
-      error: error instanceof Error ? error.message : String(error),
+      error: humanizeError(error),
     });
   }
 }
@@ -55,7 +57,36 @@ async function diagnoseHandler(_req, res) {
   } catch (error) {
     console.error('[ai/diagnose]', error);
     res.status(500).json({
-      error: error instanceof Error ? error.message : 'diagnose failed',
+      error: humanizeError(error),
+    });
+  }
+}
+
+async function handleTasks(req, res) {
+  const { message, provider, useAgent } = req.body ?? {};
+
+  if (!message || typeof message !== 'string' || !message.trim()) {
+    return res.status(422).json({ error: 'Укажите текст сообщения' });
+  }
+
+  const providerName = provider || process.env.AI_PROVIDER || 'ollama';
+
+  try {
+    const result = await handleTaskMessage(message, providerName, {
+      useAgent: Boolean(useAgent),
+    });
+
+    res.json({
+      reply: result.reply,
+      provider: providerName,
+      action: result.action,
+      data: result.data,
+      tasks: result.tasks,
+    });
+  } catch (error) {
+    console.error('[ai/tasks]', error);
+    res.status(502).json({
+      error: formatLlmError(error, providerName),
     });
   }
 }
@@ -64,7 +95,7 @@ async function handleChat(req, res) {
   const { message, provider, system } = req.body ?? {};
 
   if (!message || typeof message !== 'string' || !message.trim()) {
-    return res.status(422).json({ error: 'message is required' });
+    return res.status(422).json({ error: 'Укажите текст сообщения' });
   }
 
   const providerName = provider || process.env.AI_PROVIDER || 'ollama';
@@ -104,6 +135,7 @@ app.get('/health', healthHandler);
 app.get('/providers', providersHandler);
 app.get('/diagnose', diagnoseHandler);
 app.post('/chat', handleChat);
+app.post('/tasks', handleTasks);
 
 app.use((_req, res) => {
   res.status(404).json({ error: 'Not found' });
@@ -113,7 +145,7 @@ app.use((err, req, res, _next) => {
   console.error('[ai]', err);
   const status = err.status && err.status >= 400 && err.status < 600 ? err.status : 500;
   res.status(status).json({
-    error: err instanceof Error ? err.message : 'Internal server error',
+    error: humanizeError(err),
   });
 });
 
