@@ -6,7 +6,13 @@ namespace App;
 
 use App\Controller\TaskController;
 use App\Middleware\CorsMiddleware;
+use App\Middleware\JsonErrorMiddleware;
+use JsonException;
+use Psr\Http\Message\ResponseInterface;
+use Psr\Http\Message\ServerRequestInterface;
 use Slim\App;
+use Slim\Exception\HttpException;
+use Throwable;
 
 final class Application
 {
@@ -16,16 +22,53 @@ final class Application
 
     public function register(): void
     {
-        $this->app->addBodyParsingMiddleware();
+        $displayDetails = $this->app->getContainer()->get('settings')['displayErrorDetails'];
+
+        // https://www.slimframework.com/docs/v4/middleware/error-handling.html
+        // RoutingMiddleware — до ErrorMiddleware; ErrorMiddleware — последним.
         $this->app->addRoutingMiddleware();
+        $this->app->addBodyParsingMiddleware();
         $this->app->add(new CorsMiddleware());
-        $this->app->addErrorMiddleware(
-            $this->app->getContainer()->get('settings')['displayErrorDetails'],
-            true,
-            true
+        $this->app->add(new JsonErrorMiddleware());
+
+        $errorMiddleware = $this->app->addErrorMiddleware($displayDetails, true, true);
+        $errorMiddleware->setDefaultErrorHandler(
+            function (
+                ServerRequestInterface $request,
+                Throwable $exception,
+                bool $displayErrorDetails,
+                bool $logErrors,
+                bool $logErrorDetails
+            ): ResponseInterface {
+                return self::renderJsonError($exception, $displayErrorDetails);
+            }
         );
 
         $this->registerRoutes();
+    }
+
+    private static function renderJsonError(Throwable $exception, bool $displayDetails): ResponseInterface
+    {
+        if ($exception instanceof JsonException) {
+            return JsonErrorMiddleware::errorResponse('Некорректный JSON в теле запроса', 400);
+        }
+
+        $status = 500;
+        $message = 'Внутренняя ошибка сервера';
+
+        // HttpNotFoundException и др. — HttpSpecializedException, код в getCode()
+        // https://github.com/slimphp/Slim/blob/4.x/Slim/Exception/HttpSpecializedException.php
+        if ($exception instanceof HttpException) {
+            $code = $exception->getCode();
+            if ($code >= 400 && $code < 600) {
+                $status = $code;
+            }
+            $message = $exception->getMessage();
+        } elseif ($displayDetails) {
+            $message = $exception->getMessage();
+        }
+
+        return JsonErrorMiddleware::errorResponse($message, $status);
     }
 
     private function registerRoutes(): void

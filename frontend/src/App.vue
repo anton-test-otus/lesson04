@@ -4,21 +4,38 @@ import { api } from './api';
 import { priorityLabel } from './constants';
 import TaskEditModal from './components/TaskEditModal.vue';
 import TaskFilters from './components/TaskFilters.vue';
+import AiChat from './components/AiChat.vue';
 
 const tasks = ref([]);
 const title = ref('');
 const loading = ref(false);
 const error = ref('');
 const apiStatus = ref('');
+const aiStatus = ref('');
 const editingTask = ref(null);
 const activeFilters = ref(null);
+
+async function checkServices() {
+  try {
+    const health = await api.health();
+    apiStatus.value = health.status;
+  } catch (e) {
+    apiStatus.value = e.message;
+  }
+
+  try {
+    const health = await api.aiHealth();
+    aiStatus.value = health.status;
+  } catch (e) {
+    aiStatus.value = e.message;
+  }
+}
 
 async function loadTasks() {
   loading.value = true;
   error.value = '';
+  await checkServices();
   try {
-    const health = await api.health();
-    apiStatus.value = health.status;
     tasks.value = activeFilters.value
       ? await api.filterTasks(activeFilters.value)
       : await api.getTasks();
@@ -27,6 +44,10 @@ async function loadTasks() {
   } finally {
     loading.value = false;
   }
+}
+
+function statusClass(status) {
+  return status === 'ok' ? 'status-ok' : 'status-error';
 }
 
 function applyFilters(filters) {
@@ -101,7 +122,14 @@ onMounted(loadTasks);
     <header>
       <h1>Задачи</h1>
       <p class="subtitle">Slim PHP API + Vue + Nginx (Docker)</p>
-      <p v-if="apiStatus" class="status">API: {{ apiStatus }}</p>
+      <div v-if="apiStatus || aiStatus" class="status-row">
+        <p v-if="apiStatus" class="status" :class="statusClass(apiStatus)">
+          API: {{ apiStatus }}
+        </p>
+        <p v-if="aiStatus" class="status" :class="statusClass(aiStatus)">
+          AI: {{ aiStatus }}
+        </p>
+      </div>
     </header>
 
     <TaskFilters @apply="applyFilters" @reset="resetFilters" />
@@ -150,6 +178,8 @@ onMounted(loadTasks);
     <p v-if="!loading && tasks.length === 0" class="hint">
       {{ activeFilters ? 'Ничего не найдено' : 'Список пуст' }}
     </p>
+
+    <AiChat />
 
     <TaskEditModal
       :task="editingTask"
