@@ -2,6 +2,8 @@ import cors from 'cors';
 import express from 'express';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { createChatModel, listProviders } from './llm.js';
+import { diagnoseConnections } from './providerProbe.js';
+import { checkProviderHealth, formatLlmError } from './providerHealth.js';
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -16,27 +18,59 @@ app.use((err, req, res, next) => {
   next(err);
 });
 
-app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', service: 'ai' });
-});
+async function healthPayload(providerOverride) {
+  const provider = await checkProviderHealth(providerOverride);
 
-app.get('/api/ai/health', (_req, res) => {
-  res.json({ status: 'ok', service: 'ai' });
-});
+  return {
+    status: provider.status === 'ok' ? 'ok' : 'degraded',
+    service: 'ai',
+    provider,
+  };
+}
 
-app.get('/api/ai/providers', (_req, res) => {
+function pingHandler(_req, res) {
+  res.json({ status: 'ok', service: 'ai' });
+}
+
+async function healthHandler(req, res) {
+  try {
+    const body = await healthPayload(req.query.provider);
+    res.status(body.status === 'ok' ? 200 : 503).json(body);
+  } catch (error) {
+    res.status(503).json({
+      status: 'error',
+      service: 'ai',
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+function providersHandler(_req, res) {
   res.json(listProviders());
-});
+}
 
-app.post('/api/ai/chat', async (req, res) => {
+async function diagnoseHandler(_req, res) {
+  try {
+    res.json(await diagnoseConnections(true));
+  } catch (error) {
+    console.error('[ai/diagnose]', error);
+    res.status(500).json({
+      error: error instanceof Error ? error.message : 'diagnose failed',
+    });
+  }
+}
+
+async function handleChat(req, res) {
   const { message, provider, system } = req.body ?? {};
 
   if (!message || typeof message !== 'string' || !message.trim()) {
     return res.status(422).json({ error: 'message is required' });
   }
 
+  const providerName = provider || process.env.AI_PROVIDER || 'ollama';
+
   try {
-    const model = createChatModel(provider);
+    const model = await createChatModel(provider);
     const messages = [];
 
     if (system && typeof system === 'string' && system.trim()) {
@@ -53,16 +87,23 @@ app.post('/api/ai/chat', async (req, res) => {
 
     res.json({
       reply: text,
-      provider: provider || process.env.AI_PROVIDER || 'ollama',
+      provider: providerName,
       model: response.response_metadata?.model ?? null,
     });
   } catch (error) {
     console.error('[ai/chat]', error);
     res.status(502).json({
-      error: error instanceof Error ? error.message : 'AI request failed',
+      error: formatLlmError(error, providerName),
     });
   }
-});
+}
+
+// nginx: location /ai/ + proxy_pass http://ai/ → /health, /chat, …
+app.get('/ping', pingHandler);
+app.get('/health', healthHandler);
+app.get('/providers', providersHandler);
+app.get('/diagnose', diagnoseHandler);
+app.post('/chat', handleChat);
 
 app.use((_req, res) => {
   res.status(404).json({ error: 'Not found' });

@@ -1,10 +1,13 @@
 import { ChatOllama } from '@langchain/ollama';
 import { ChatOpenAI } from '@langchain/openai';
+import { getProviderConfig, normalizeProvider, PROVIDERS } from './providers.js';
+import { checkProviderHealth } from './providerHealth.js';
 
-const PROVIDERS = ['ollama', 'lmstudio', 'openai'];
+export { PROVIDERS, normalizeProvider };
 
 export function listProviders() {
   const configured = process.env.AI_PROVIDER || 'ollama';
+  const config = getProviderConfig(configured);
 
   return {
     default: configured,
@@ -19,43 +22,47 @@ export function listProviders() {
       lmstudio: process.env.LMSTUDIO_BASE_URL || 'http://host.docker.internal:1234/v1',
       openai: 'https://api.openai.com/v1',
     },
+    resolvedModel: config.model,
   };
 }
 
 /**
  * @param {string} [providerOverride]
- * @returns {import('@langchain/core/language_models/chat_models').BaseChatModel}
  */
-function normalizeProvider(name) {
-  const key = name.toLowerCase().replace(/[_-]/g, '');
-  if (key === 'lmstudio') return 'lmstudio';
-  if (key === 'ollama') return 'ollama';
-  if (key === 'openai') return 'openai';
-  return name.toLowerCase();
-}
+export async function createChatModel(providerOverride) {
+  const provider = normalizeProvider(providerOverride || process.env.AI_PROVIDER || 'ollama');
+  const health = await checkProviderHealth(provider);
 
-export function createChatModel(providerOverride) {
-  const provider = normalizeProvider(
-    providerOverride || process.env.AI_PROVIDER || 'ollama'
-  );
+  if (health.status !== 'ok') {
+    throw new Error(health.hint || health.error || `Провайдер ${provider} недоступен`);
+  }
+
+  const timeout = Number(process.env.AI_REQUEST_TIMEOUT_MS || 120000);
 
   switch (provider) {
-    case 'ollama':
+    case 'ollama': {
+      const config = getProviderConfig('ollama');
       return new ChatOllama({
-        baseUrl: process.env.OLLAMA_BASE_URL || 'http://host.docker.internal:11434',
-        model: process.env.OLLAMA_MODEL || 'llama3.2',
+        baseUrl: config.baseUrl,
+        model: health.model || config.model,
         temperature: Number(process.env.AI_TEMPERATURE ?? 0.7),
+        maxRetries: 1,
       });
+    }
 
-    case 'lmstudio':
+    case 'lmstudio': {
+      const config = getProviderConfig('lmstudio');
       return new ChatOpenAI({
         apiKey: process.env.LMSTUDIO_API_KEY || 'lm-studio',
-        model: process.env.LMSTUDIO_MODEL || 'local-model',
+        model: health.model || config.model,
         temperature: Number(process.env.AI_TEMPERATURE ?? 0.7),
+        timeout,
+        maxRetries: 1,
         configuration: {
-          baseURL: process.env.LMSTUDIO_BASE_URL || 'http://host.docker.internal:1234/v1',
+          baseURL: config.baseUrl,
         },
       });
+    }
 
     case 'openai':
       if (!process.env.OPENAI_API_KEY) {
@@ -65,9 +72,11 @@ export function createChatModel(providerOverride) {
         apiKey: process.env.OPENAI_API_KEY,
         model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
         temperature: Number(process.env.AI_TEMPERATURE ?? 0.7),
+        timeout,
+        maxRetries: 1,
       });
 
     default:
-      throw new Error(`Unknown provider: ${provider}. Use: ${PROVIDERS.join(', ')}`);
+      throw new Error(`Unknown provider: ${provider}`);
   }
 }

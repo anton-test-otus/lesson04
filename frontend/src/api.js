@@ -71,12 +71,12 @@ export const api = {
     ),
   deleteTask: (id) => request(`/api/tasks/${id}`, { method: 'DELETE' }, 'API'),
 
-  aiHealth: () => wrapAi(request('/api/ai/health', {}, 'AI')),
-  aiProviders: () => wrapAi(request('/api/ai/providers', {}, 'AI')),
+  aiHealth: () => wrapAi(request('/ai/health', {}, 'AI')),
+  aiProviders: () => wrapAi(request('/ai/providers', {}, 'AI')),
   aiChat: ({ message, provider, system }) =>
     wrapAi(
       request(
-        '/api/ai/chat',
+        '/ai/chat',
         {
           method: 'POST',
           body: JSON.stringify({ message, provider, system }),

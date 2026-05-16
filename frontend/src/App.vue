@@ -25,7 +25,13 @@ async function checkServices() {
 
   try {
     const health = await api.aiHealth();
-    aiStatus.value = health.status;
+    if (health.status === 'ok' && health.provider?.status === 'ok') {
+      aiStatus.value = 'ok';
+    } else if (health.provider?.error) {
+      aiStatus.value = health.provider.error;
+    } else {
+      aiStatus.value = health.status === 'ok' ? 'ok' : health.status;
+    }
   } catch (e) {
     aiStatus.value = e.message;
   }

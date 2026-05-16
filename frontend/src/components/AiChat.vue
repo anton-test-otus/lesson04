@@ -42,7 +42,8 @@ async function send() {
   <section class="ai-chat">
     <h2>AI (LangChain.js)</h2>
     <p v-if="providers" class="ai-meta">
-      Провайдер по умолчанию: <strong>{{ providers.default }}</strong>
+      Провайдер: <strong>{{ providers.default }}</strong>
+      <span v-if="providers.resolvedModel"> · модель: {{ providers.resolvedModel }}</span>
     </p>
 
     <label class="field">
