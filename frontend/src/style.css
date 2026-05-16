@@ -238,6 +238,137 @@ button.secondary {
   gap: 0.5rem;
 }
 
+.parse-overlay {
+  z-index: 110;
+}
+
+.parse-modal {
+  max-width: 440px;
+  max-height: min(85vh, 520px);
+  display: flex;
+  flex-direction: column;
+}
+
+.parse-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.parse-header h2 {
+  margin: 0;
+}
+
+.parse-close {
+  min-width: 2.25rem;
+  padding: 0.35rem 0.5rem;
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+.parse-hint {
+  margin: 0 0 0.75rem;
+  font-size: 0.85rem;
+  color: #8b9cb3;
+}
+
+.parse-hint--reject {
+  color: #fca5a5;
+}
+
+.parse-timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.parse-item {
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
+  position: relative;
+}
+
+.parse-item:not(:last-child)::before {
+  content: '';
+  position: absolute;
+  left: 0.35rem;
+  top: 1.25rem;
+  bottom: -0.25rem;
+  width: 2px;
+  background: #2d3a4d;
+}
+
+.parse-marker {
+  flex-shrink: 0;
+  width: 0.75rem;
+  height: 0.75rem;
+  margin-top: 0.35rem;
+  border-radius: 50%;
+  background: #374151;
+  border: 2px solid #4b5563;
+}
+
+.parse-item--active .parse-marker {
+  background: #3b82f6;
+  border-color: #60a5fa;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.35);
+}
+
+.parse-item--done .parse-marker {
+  background: #5eead4;
+  border-color: #5eead4;
+}
+
+.parse-item--reject .parse-marker {
+  background: #ef4444;
+  border-color: #f87171;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.25);
+}
+
+.parse-item--reject .parse-item-title {
+  color: #fca5a5;
+}
+
+.parse-item--reject .parse-detail {
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  color: #fecaca;
+}
+
+.parse-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.parse-item-title {
+  display: block;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.parse-item--detail .parse-item-title {
+  color: #93c5fd;
+  font-weight: 500;
+  font-size: 0.8rem;
+}
+
+.parse-detail {
+  margin: 0.35rem 0 0;
+  padding: 0.5rem 0.65rem;
+  background: #0f1419;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #c5d0de;
+  border: 1px solid #2d3a4d;
+}
+
 .filters {
   background: #1a2332;
   border: 1px solid #2d3a4d;

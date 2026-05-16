@@ -88,15 +88,89 @@ export const api = {
         'AI'
       )
     ),
-  aiTasks: ({ message, provider, useAgent }) =>
-    wrapAi(
-      request(
-        '/ai/tasks',
-        {
-          method: 'POST',
-          body: JSON.stringify({ message, provider, useAgent }),
-        },
-        'AI'
-      )
-    ),
+  aiTasks: async ({ message, provider, useAgent, onGraphStep, onStreamEvent }) => {
+    let response;
+    try {
+      response = await fetch(`${API_URL}/ai/tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message, provider, useAgent, stream: true }),
+      });
+    } catch (cause) {
+      throw new Error('AI: нет соединения с сервером', { cause });
+    }
+
+    if (!response.ok && !response.body) {
+      const { data, error: parseError } = await readJsonResponse(response);
+      if (parseError) {
+        throw new Error(`AI: ${parseError.message}`);
+      }
+      throw new Error(extractApiError(data, `AI: ошибка запроса (HTTP ${response.status})`));
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) {
+      throw new Error('AI: потоковый ответ недоступен');
+    }
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let result = null;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+
+      for (const line of lines) {
+        if (!line.trim()) {
+          continue;
+        }
+        let event;
+        try {
+          event = JSON.parse(line);
+        } catch {
+          throw new Error('AI: не удалось обработать ответ сервера');
+        }
+        if (event.type === 'done') {
+          const { type: _t, ...body } = event;
+          result = body;
+        } else {
+          onStreamEvent?.(event);
+          if (event.type === 'step' && event.graph && event.node) {
+            onGraphStep?.({ graph: event.graph, node: event.node });
+          }
+        }
+      }
+    }
+
+    if (buffer.trim()) {
+      const event = JSON.parse(buffer);
+      if (event.type === 'done') {
+        const { type: _t, ...body } = event;
+        result = body;
+      } else {
+        onStreamEvent?.(event);
+        if (event.type === 'step' && event.graph && event.node) {
+          onGraphStep?.({ graph: event.graph, node: event.node });
+        }
+      }
+    }
+
+    if (!result) {
+      throw new Error('AI: пустой ответ сервера');
+    }
+
+    if (!response.ok) {
+      throw new Error(
+        extractApiError(result, `AI: ошибка запроса (HTTP ${response.status})`)
+      );
+    }
+
+    return wrapAi(Promise.resolve(result));
+  },
 };

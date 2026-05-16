@@ -1,6 +1,7 @@
 <script setup>
 import { onMounted, ref } from 'vue';
 import { api } from './api';
+import { applyAiDataToTasks } from './taskSync';
 import { priorityLabel } from './constants';
 import TaskEditModal from './components/TaskEditModal.vue';
 import AiChat from './components/AiChat.vue';
@@ -10,7 +11,9 @@ const loading = ref(false);
 const error = ref('');
 const apiStatus = ref('');
 const aiStatus = ref('');
-const agentStatus = ref('');
+const graphStatus = ref('');
+const graphIdleLabel = ref('tasks');
+const toolsStatus = ref('');
 const editingTask = ref(null);
 
 async function checkServices() {
@@ -30,10 +33,13 @@ async function checkServices() {
     } else {
       aiStatus.value = health.status === 'ok' ? 'ok' : health.status;
     }
-    agentStatus.value = health.tasksAgent?.label ?? 'off';
+    graphIdleLabel.value = health.tasksGraph?.name ?? health.tasksGraph?.label ?? 'tasks';
+    graphStatus.value = graphIdleLabel.value;
+    toolsStatus.value = health.tasksAgent?.label ?? health.tasksGraph?.toolsAgent?.label ?? 'off';
   } catch (e) {
     aiStatus.value = e.message;
-    agentStatus.value = '';
+    graphStatus.value = '';
+    toolsStatus.value = '';
   }
 }
 
@@ -54,12 +60,34 @@ function statusClass(status) {
   return status === 'ok' ? 'status-ok' : 'status-error';
 }
 
-function agentStatusClass(label) {
-  return label === 'on' ? 'status-ok' : 'status-muted';
+function graphStatusClass(label) {
+  if (String(label).includes('→')) {
+    return 'status-ok';
+  }
+  return label === graphIdleLabel.value ? 'status-ok' : 'status-muted';
 }
 
-function onAiTasksChanged(newTasks) {
-  tasks.value = newTasks;
+function onGraphStep({ graph, node }) {
+  graphStatus.value = node ? `${graph} → ${node}` : graph;
+}
+
+function onGraphIdle() {
+  graphStatus.value = graphIdleLabel.value;
+}
+
+async function reloadTasksQuiet() {
+  try {
+    tasks.value = await api.getTasks();
+  } catch (e) {
+    error.value = e.message;
+  }
+}
+
+async function onAiResult(result) {
+  const mode = applyAiDataToTasks(tasks, result.data);
+  if (mode === 'reload') {
+    await reloadTasksQuiet();
+  }
   error.value = '';
 }
 
@@ -75,9 +103,9 @@ async function saveEdit(payload) {
   if (!editingTask.value) return;
   error.value = '';
   try {
-    await api.updateTask(editingTask.value.id, payload);
+    const task = await api.updateTask(editingTask.value.id, payload);
+    applyAiDataToTasks(tasks, { kind: 'task', task });
     closeEdit();
-    await loadTasks();
   } catch (e) {
     error.value = e.message;
   }
@@ -87,7 +115,7 @@ async function removeTask(id) {
   error.value = '';
   try {
     await api.deleteTask(id);
-    await loadTasks();
+    applyAiDataToTasks(tasks, { kind: 'deleted', id });
   } catch (e) {
     error.value = e.message;
   }
@@ -95,6 +123,10 @@ async function removeTask(id) {
 
 function priorityClass(priority) {
   return `priority priority-${priority}`;
+}
+
+function hasPriority(priority) {
+  return priority === 1 || priority === 2 || priority === 3;
 }
 
 onMounted(loadTasks);
@@ -105,20 +137,31 @@ onMounted(loadTasks);
     <header>
       <h1>Задачи</h1>
       <p class="subtitle">Slim PHP API + Vue + Nginx (Docker)</p>
-      <div v-if="apiStatus || aiStatus || agentStatus" class="status-row">
+      <div v-if="apiStatus || aiStatus || graphStatus || toolsStatus" class="status-row">
         <p v-if="apiStatus" class="status" :class="statusClass(apiStatus)">
           API: {{ apiStatus }}
         </p>
         <p v-if="aiStatus" class="status" :class="statusClass(aiStatus)">
           AI: {{ aiStatus }}
         </p>
-        <p v-if="agentStatus" class="status" :class="agentStatusClass(agentStatus)">
-          Agent: {{ agentStatus }}
+        <p v-if="graphStatus" class="status" :class="graphStatusClass(graphStatus)">
+          Graph: {{ graphStatus }}
+        </p>
+        <p
+          v-if="toolsStatus"
+          class="status"
+          :class="toolsStatus === 'on' ? 'status-ok' : 'status-muted'"
+        >
+          Tools: {{ toolsStatus }}
         </p>
       </div>
     </header>
 
-    <AiChat @tasks-changed="onAiTasksChanged" />
+    <AiChat
+      @ai-result="onAiResult"
+      @graph-step="onGraphStep"
+      @graph-idle="onGraphIdle"
+    />
 
     <p v-if="error" class="error">{{ error }}</p>
     <p v-if="loading" class="hint">Загрузка...</p>
@@ -134,7 +177,7 @@ onMounted(loadTasks);
             >🔥</span
           >
           <span class="task-title">{{ task.title }}</span>
-          <span :class="priorityClass(task.priority)">
+          <span v-if="hasPriority(task.priority)" :class="priorityClass(task.priority)">
             {{ priorityLabel(task.priority) }}
           </span>
         </div>

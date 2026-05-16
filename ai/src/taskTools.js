@@ -10,7 +10,7 @@ export function buildTaskTools() {
     tool(
       async () => {
         const tasks = await tasksApi.listTasks();
-        return JSON.stringify(tasks);
+        return JSON.stringify({ kind: 'tasks', tasks });
       },
       {
         name: 'list_tasks',
@@ -25,7 +25,7 @@ export function buildTaskTools() {
           priorities: priorities?.length ? priorities : undefined,
           burningOnly: burning_only,
         });
-        return JSON.stringify(tasks);
+        return JSON.stringify({ kind: 'tasks', tasks });
       },
       {
         name: 'filter_tasks',
@@ -42,10 +42,10 @@ export function buildTaskTools() {
       async ({ title, priority, is_burning }) => {
         const task = await tasksApi.createTask({
           title,
-          priority: priority ?? 2,
+          priority: priority ?? null,
           is_burning: is_burning ?? false,
         });
-        return JSON.stringify(task);
+        return JSON.stringify({ kind: 'task', task });
       },
       {
         name: 'create_task',
@@ -60,12 +60,11 @@ export function buildTaskTools() {
     tool(
       async ({ titles }) => {
         const result = await tasksApi.createTasksBatch(titles);
-        return JSON.stringify(result);
+        return JSON.stringify({ kind: 'batch', ...result });
       },
       {
         name: 'create_tasks_batch',
-        description:
-          'Создать несколько задач (массив названий; для списка «добавь задачи:» + строки или через запятую)',
+        description: 'Создать несколько задач (массив названий)',
         schema: z.object({
           titles: z.array(z.string()).min(1),
         }),
@@ -74,7 +73,7 @@ export function buildTaskTools() {
     tool(
       async ({ id, title, priority, is_burning }) => {
         const task = await tasksApi.updateTask(id, { title, priority, is_burning });
-        return JSON.stringify(task);
+        return JSON.stringify({ kind: 'task', task });
       },
       {
         name: 'update_task',
@@ -82,14 +81,14 @@ export function buildTaskTools() {
         schema: z.object({
           id: z.number().int().positive(),
           title: z.string(),
-          priority: prioritySchema,
+          priority: z.union([prioritySchema, z.null()]),
           is_burning: z.boolean(),
         }),
       }
     ),
     tool(
       async ({ q, priorities, burning_only, ids, set_priority, set_is_burning, bump_priority }) => {
-        const intent = {
+        const result = await executeTaskIntent({
           action: 'update_many',
           q,
           priorities,
@@ -98,21 +97,20 @@ export function buildTaskTools() {
           set_priority,
           set_is_burning,
           bump_priority,
-        };
-        const result = await executeTaskIntent(intent);
+        });
         return JSON.stringify(result);
       },
       {
         name: 'update_tasks_bulk',
         description:
-          'Отбор задач (q, priorities, burning_only, ids); изменить set_priority, bump_priority (up/down), set_is_burning',
+          'Отбор (q, priorities, burning_only, ids); изменить set_priority, bump_priority (up/down), set_is_burning',
         schema: z
           .object({
             q: z.string().optional().nullable(),
             priorities: z.array(prioritySchema).optional(),
             burning_only: z.boolean().optional(),
             ids: z.array(z.number().int().positive()).optional(),
-            set_priority: prioritySchema.optional(),
+            set_priority: z.union([prioritySchema, z.null()]).optional(),
             set_is_burning: z.boolean().optional(),
             bump_priority: z.enum(['up', 'down']).optional(),
           })
@@ -129,13 +127,36 @@ export function buildTaskTools() {
       }
     ),
     tool(
+      async ({ q, priorities, burning_only, ids }) => {
+        const result = await executeTaskIntent({
+          action: 'delete_many',
+          q,
+          priorities,
+          burning_only,
+          ids,
+        });
+        return JSON.stringify(result);
+      },
+      {
+        name: 'delete_tasks_bulk',
+        description:
+          'Удалить задачи по отбору. Пустой отбор = все задачи. «Удали все задачи» — без параметров.',
+        schema: z.object({
+          q: z.string().optional().nullable(),
+          priorities: z.array(prioritySchema).optional(),
+          burning_only: z.boolean().optional(),
+          ids: z.array(z.number().int().positive()).optional(),
+        }),
+      }
+    ),
+    tool(
       async ({ id }) => {
         await tasksApi.deleteTask(id);
-        return JSON.stringify({ deleted: true, id });
+        return JSON.stringify({ kind: 'deleted', id });
       },
       {
         name: 'delete_task',
-        description: 'Удалить задачу по id',
+        description: 'Удалить одну задачу по id',
         schema: z.object({
           id: z.number().int().positive(),
         }),

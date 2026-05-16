@@ -1,4 +1,8 @@
-import { bumpPriorityDown, bumpPriorityUp } from './priorityLadder.js';
+import {
+  bumpPriorityDown,
+  bumpPriorityUp,
+  validateBumpForTargets,
+} from './priorityLadder.js';
 import * as tasksApi from './tasksApi.js';
 
 function resolvePriority(current, intent) {
@@ -11,7 +15,7 @@ function resolvePriority(current, intent) {
   if (intent.set_priority !== undefined) {
     return intent.set_priority;
   }
-  return current.priority;
+  return current.priority ?? null;
 }
 
 async function selectTasks(intent) {
@@ -54,7 +58,7 @@ export async function executeTaskIntent(intent) {
     case 'create': {
       const task = await tasksApi.createTask({
         title: intent.title.trim(),
-        priority: intent.priority ?? 2,
+        priority: intent.priority ?? null,
         is_burning: intent.is_burning ?? false,
       });
       return { kind: 'task', task };
@@ -89,6 +93,13 @@ export async function executeTaskIntent(intent) {
         return { kind: 'update_many', updated: [], count: 0 };
       }
 
+      if (intent.bump_priority) {
+        const rejectReason = validateBumpForTargets(targets, intent.bump_priority);
+        if (rejectReason) {
+          return { kind: 'reject', reason: rejectReason };
+        }
+      }
+
       const updated = [];
 
       for (const current of targets) {
@@ -106,6 +117,22 @@ export async function executeTaskIntent(intent) {
       await tasksApi.deleteTask(intent.id);
       return { kind: 'deleted', id: intent.id };
     }
+    case 'delete_many': {
+      const targets = await selectTasks(intent);
+
+      if (targets.length === 0) {
+        return { kind: 'delete_many', ids: [], count: 0 };
+      }
+
+      const ids = [];
+
+      for (const current of targets) {
+        await tasksApi.deleteTask(current.id);
+        ids.push(current.id);
+      }
+
+      return { kind: 'delete_many', ids, count: ids.length };
+    }
     default:
       throw new Error(`Неизвестное действие: ${intent.action}`);
   }
@@ -118,11 +145,11 @@ export function buildReply(intent, result) {
     case 'filter':
       return formatTasksList(result.tasks, 'Найденные задачи');
     case 'create':
-      return `Создана задача #${result.task.id}: «${result.task.title}» (приоритет ${result.task.priority}${result.task.is_burning ? ', горящая' : ''}).`;
+      return `Создана задача #${result.task.id}: «${result.task.title}» (приоритет ${result.task.priority ?? 'пустой'}${result.task.is_burning ? ', горящая' : ''}).`;
     case 'create_batch':
       return `Создано задач: ${result.count}.`;
     case 'update':
-      return `Обновлена задача #${result.task.id}: «${result.task.title}».`;
+      return `Обновлена задача #${result.task.id}: «${result.task.title}» (приоритет ${result.task.priority ?? 'пустой'}).`;
     case 'update_many': {
       if (result.count === 0) {
         return 'Подходящих задач не найдено — ничего не обновлено.';
@@ -132,8 +159,12 @@ export function buildReply(intent, result) {
         parts.push('приоритет ↑');
       } else if (intent.bump_priority === 'down') {
         parts.push('приоритет ↓');
-      } else if (intent.set_priority !== undefined) {
-        parts.push(`приоритет → ${intent.set_priority}`);
+      } else       if (intent.set_priority !== undefined) {
+        parts.push(
+          intent.set_priority === null
+            ? 'статус приоритета снят'
+            : `приоритет → ${intent.set_priority}`
+        );
       }
       if (intent.set_is_burning !== undefined) {
         parts.push(intent.set_is_burning ? 'зажгли 🔥' : 'потушили');
@@ -145,6 +176,12 @@ export function buildReply(intent, result) {
     }
     case 'delete':
       return `Задача #${result.id} удалена.`;
+    case 'delete_many': {
+      if (result.count === 0) {
+        return 'Подходящих задач не найдено — ничего не удалено.';
+      }
+      return `Удалено задач: ${result.count} (id: ${result.ids.join(', ')}).`;
+    }
     default:
       return 'Готово.';
   }
@@ -156,13 +193,8 @@ function formatTasksList(tasks, heading) {
   }
   const lines = tasks.map(
     (t) =>
-      `• #${t.id} «${t.title}» — приоритет ${t.priority}${t.is_burning ? ', 🔥' : ''}`
+      `• #${t.id} «${t.title}» — приоритет ${t.priority ?? 'пустой'}${t.is_burning ? ', 🔥' : ''}`
   );
   return `${heading} (${tasks.length}):\n${lines.join('\n')}`;
 }
 
-export function shouldReturnTasks(intent) {
-  return ['list', 'filter', 'create', 'create_batch', 'update', 'update_many'].includes(
-    intent.action
-  );
-}

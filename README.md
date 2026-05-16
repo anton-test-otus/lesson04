@@ -134,7 +134,7 @@ make health       # проверка API и AI
 curl "http://localhost/api/tasks/filter?q=Наст*ить&priority=1&burning_only=1"
 ```
 
-**Тело задачи:** `title`, `priority` (1–3), `is_burning` (boolean).
+**Тело задачи:** `title`, `priority` (`1`–`3` или `null` — пустой статус, по умолчанию `null`), `is_burning` (boolean).
 
 ### AI (Node, `/ai`)
 
@@ -183,41 +183,32 @@ curl "http://localhost/api/tasks/filter?q=Наст*ить&priority=1&burning_onl
 | `OPENAI_API_KEY`     | —                                     | Ключ OpenAI                                                            |
 | `OPENAI_MODEL`       | `gpt-4o-mini`                         | Модель OpenAI                                                          |
 | `TASKS_API_BASE_URL` | `http://api`                          | URL PHP API из контейнера `ai` (в compose задано)                      |
-| `AI_TASKS_USE_AGENT` | `false`                               | `true` — tool-calling agent; `false` — structured pipeline (см. ниже) |
 | `AI_REQUEST_LOG_DIR`   | `/app/logs` (в compose)               | Каталог журнала запросов к AI (`requests.jsonl`)                     |
 | `AI_REQUEST_LOG_FILE`  | `requests.jsonl`                      | Имя файла журнала                                                    |
 
-### Режимы LangChain для `/ai/tasks`
+### LangGraph для `/ai/tasks`
 
-Оба режима используют LangChain и тот же PHP API задач. Переключатель — `AI_TASKS_USE_AGENT` в `.env` или поле `"useAgent": true` в теле `POST /ai/tasks`. В журнале `ai/logs/requests.jsonl` это поле `request.useAgent`.
-
-#### Structured pipeline (`AI_TASKS_USE_AGENT=false`, по умолчанию)
+Запросы обрабатываются **LangGraph `StateGraph`** (`ai/src/taskGraph.js`): общее состояние передаётся по рёбрам между узлами, без цикла tool-calling агента.
 
 ```
-Фраза → LLM (structured output / JSON) → Zod-схема намерения → executeTaskIntent() → /api/tasks/...
+START → lexical_parse → api_plan → execute? | tool_agent? | parse_intent? → respond → END
 ```
 
-- Один (редко два) вызов LLM на запрос — быстрее и предсказуемее.
-- Допустимые действия заданы схемой: `list`, `filter`, `create`, `update_many`, `reject`, …
-- Текст ответа формирует `buildReply()` (шаблоны на русском).
-- Работает с **Ollama**, **LM Studio**, **OpenAI**.
+| Узел | Назначение |
+|------|------------|
+| `lexical_parse` | **LLM** + промпт: смысл команды (создать/найти/приоритет/горящий); fallback — regex |
+| `api_plan` | **LLM** + промпт: шаги REST и `intent`; fallback — правила из разбора |
+| `tool_agent` | Fallback: ReAct + tools (`AI_TASKS_USE_AGENT=true`, lmstudio/openai) |
+| `parse_intent` | Fallback: LLM → Zod `TaskIntentSchema` |
+| `execute` | `executeTaskIntent()` → PHP API |
+| `respond` | Ответ клиенту |
 
-#### Tool-calling agent (`AI_TASKS_USE_AGENT=true`)
-
-```
-Фраза → parseIntent (отсев reject) → AgentExecutor → tools (list_tasks, filter_tasks, …) → цикл до 6 шагов
-```
-
-- Модель сама выбирает инструменты и может выполнить цепочку (например: фильтр → обновление по id).
-- Ответ в `action` — свободный текст агента; в `data` обычно актуальный список `tasks`.
-- Только **LM Studio** и **OpenAI** (нужен tool calling у модели); для Ollama флаг игнорируется, остаётся structured pipeline.
-- Обычно медленнее и менее детерминированно, зато удобнее для сложных формулировок.
-
-| | Structured | Agent |
-|---|------------|--------|
-| Вызовов LLM | обычно 1 | несколько |
-| Кто дергает API | код `taskExecutor` | tools в `taskTools.js` |
-| Провайдеры | ollama, lmstudio, openai | lmstudio, openai |
+- Сначала всегда лексический разбор; при `complete` — сразу `execute`.
+- Иначе — tools или LLM.
+- Переключатель: `AI_TASKS_USE_AGENT` в `.env` или `"useAgent": true` в `POST /ai/tasks`.
+- Двухшаговые формулировки («найди Docker и удали») — одно намерение `update_many` / `delete_many` с тем же `q`, выполнение в коде, не в LLM-цикле.
+- Провайдеры: **Ollama**, **LM Studio**, **OpenAI**.
+- В `GET /ai/health` поле `tasksGraph.label` = `graph`.
 
 ### Примеры `.env`
 
@@ -225,7 +216,6 @@ curl "http://localhost/api/tasks/filter?q=Наст*ить&priority=1&burning_onl
 
 ```env
 AI_PROVIDER=lmstudio
-AI_TASKS_USE_AGENT=true
 LMSTUDIO_BASE_URL=http://host.docker.internal:1234/v1
 LMSTUDIO_MODEL=qwen2.5-7b-instruct
 LMSTUDIO_API_KEY=lm-studio
@@ -270,7 +260,7 @@ curl -s http://localhost/ai/providers | jq
 
 ### Команды задач на естественном языке (`POST /ai/tasks`)
 
-LangChain разбирает запрос и вызывает REST API задач (`/api/tasks`, `/api/tasks/filter`, …). Режим — [structured или agent](#режимы-langchain-для-aitasks).
+LangChain (LangGraph) разбирает запрос и вызывает REST API задач (`/api/tasks`, `/api/tasks/filter`, …). Схема — [LangGraph для `/ai/tasks`](#langgraph-для-aitasks).
 
 ```bash
 curl -X POST http://localhost/ai/tasks \
@@ -289,7 +279,7 @@ curl -X POST http://localhost/ai/tasks \
 | `errors` | Массив сообщений об ошибках при `status: error`, иначе `null`         |
 
 
-При успешных операциях, меняющих список, в `data.tasks` — актуальный список задач для UI.
+При `list` / `filter` в `data` — `kind: "tasks"` и массив `tasks` (им отображается список в UI). При создании/изменении/удалении — только результат операции (`task`, `created`, `updated`, `id`); фронтенд обновляет локальный список точечно.
 
 Примеры фраз в UI:
 
@@ -297,7 +287,8 @@ curl -X POST http://localhost/ai/tasks \
 | Запрос                                   | Действие API                                       |
 | ---------------------------------------- | -------------------------------------------------- |
 | «покажи все задачи»                      | `GET /api/tasks`                                   |
-| «найди настрой* с приоритетом 1»         | `GET /api/tasks/filter`                            |
+| «найди настрой* с приоритетом 1»         | `filter`: `q` + `priorities`                       |
+| «найди задачи тест* с низким приоритетом» | `filter`: `q: "тест*"`, `priorities: [3]`          |
 | «создай задачу купить молоко»            | `POST /api/tasks`                                  |
 | «добавь задачи: отчёт, созвон»           | `POST /api/tasks/batch`                            |
 | «измени задачу 2 — название …»           | `POST /api/tasks/{id}/update`                      |
@@ -395,7 +386,7 @@ docker compose exec ai node -e "fetch('http://host.docker.internal:1234/v1/model
 
 ## Схема БД
 
-При первом запуске MySQL выполняет `docker/db/init.sql` (таблица `tasks` с `priority`, `is_burning`).
+При первом запуске MySQL выполняет `docker/db/init.sql` (таблица `tasks`: `priority` nullable, `is_burning`).
 
 Если volume уже был создан со старой схемой без этих полей — пересоздайте БД:
 
@@ -418,7 +409,8 @@ make reset-db
 
 | Файл                         | Назначение                                                                       |
 | ---------------------------- | -------------------------------------------------------------------------------- |
-| `ai/src/taskIntentSchema.js` | `TASK_INTENT_SYSTEM`, `AGENT_SYSTEM` — только API задач; иначе `reject` / ошибка |
+| `ai/src/taskIntentSchema.js` | `TASK_INTENT_SYSTEM` — только API задач; иначе `reject` / ошибка |
+| `ai/src/taskGraph.js` | LangGraph `StateGraph`: shortcuts → parse_intent → execute → respond |
 
 
 ---

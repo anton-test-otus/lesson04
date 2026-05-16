@@ -68,16 +68,19 @@ final class TaskRepository
         return array_map($this->hydrate(...), $stmt->fetchAll());
     }
 
-    public function create(string $title, int $priority = 2, bool $isBurning = false): array
+    public function create(string $title, ?int $priority = null, bool $isBurning = false): array
     {
         $stmt = $this->pdo->prepare(
             'INSERT INTO tasks (title, priority, is_burning) VALUES (:title, :priority, :is_burning)'
         );
-        $stmt->execute([
-            'title' => $title,
-            'priority' => $priority,
-            'is_burning' => $isBurning ? 1 : 0,
-        ]);
+        $stmt->bindValue(':title', $title, PDO::PARAM_STR);
+        if ($priority === null) {
+            $stmt->bindValue(':priority', null, PDO::PARAM_NULL);
+        } else {
+            $stmt->bindValue(':priority', $priority, PDO::PARAM_INT);
+        }
+        $stmt->bindValue(':is_burning', $isBurning ? 1 : 0, PDO::PARAM_INT);
+        $stmt->execute();
 
         return $this->findById((int) $this->pdo->lastInsertId());
     }
@@ -94,7 +97,7 @@ final class TaskRepository
         try {
             $created = [];
             $stmt = $this->pdo->prepare(
-                'INSERT INTO tasks (title, priority, is_burning) VALUES (:title, 2, 0)'
+                'INSERT INTO tasks (title, priority, is_burning) VALUES (:title, NULL, 0)'
             );
 
             foreach ($titles as $title) {
@@ -111,19 +114,22 @@ final class TaskRepository
         }
     }
 
-    public function update(int $id, string $title, int $priority, bool $isBurning): ?array
+    public function update(int $id, string $title, ?int $priority, bool $isBurning): ?array
     {
         $stmt = $this->pdo->prepare(
             'UPDATE tasks
              SET title = :title, priority = :priority, is_burning = :is_burning
              WHERE id = :id'
         );
-        $stmt->execute([
-            'id' => $id,
-            'title' => $title,
-            'priority' => $priority,
-            'is_burning' => $isBurning ? 1 : 0,
-        ]);
+        $stmt->bindValue(':id', $id, PDO::PARAM_INT);
+        $stmt->bindValue(':title', $title, PDO::PARAM_STR);
+        if ($priority === null) {
+            $stmt->bindValue(':priority', null, PDO::PARAM_NULL);
+        } else {
+            $stmt->bindValue(':priority', $priority, PDO::PARAM_INT);
+        }
+        $stmt->bindValue(':is_burning', $isBurning ? 1 : 0, PDO::PARAM_INT);
+        $stmt->execute();
 
         if ($stmt->rowCount() === 0 && $this->findById($id) === null) {
             return null;
@@ -156,7 +162,7 @@ final class TaskRepository
         return [
             'id' => (int) $row['id'],
             'title' => $row['title'],
-            'priority' => (int) $row['priority'],
+            'priority' => $row['priority'] !== null ? (int) $row['priority'] : null,
             'is_burning' => (bool) $row['is_burning'],
             'created_at' => $row['created_at'],
         ];

@@ -7,7 +7,8 @@ import { humanizeError } from './formatError.js';
 import { checkProviderHealth, formatLlmError } from './providerHealth.js';
 import { aiError, aiSuccess } from './taskResponse.js';
 import { logAiRequest } from './requestLog.js';
-import { getTasksAgentStatus } from './tasksAgentMode.js';
+import { getTasksGraphStatus } from './tasksGraphMode.js';
+import { resolveTasksAgentMode } from './tasksAgentMode.js';
 import { handleTaskMessage } from './taskAssistant.js';
 
 const app = express();
@@ -30,7 +31,8 @@ async function healthPayload(providerOverride) {
     status: provider.status === 'ok' ? 'ok' : 'degraded',
     service: 'ai',
     provider,
-    tasksAgent: getTasksAgentStatus(providerOverride),
+    tasksGraph: getTasksGraphStatus(providerOverride),
+    tasksAgent: resolveTasksAgentMode(providerOverride),
   };
 }
 
@@ -70,9 +72,13 @@ async function handleTasks(req, res) {
   const started = Date.now();
   const { message, provider, useAgent } = req.body ?? {};
   const requestText = typeof message === 'string' ? message.trim() : '';
+  const providerName = provider || process.env.AI_PROVIDER || 'ollama';
+  const agentMode = resolveTasksAgentMode(providerName, useAgent);
   const requestMeta = {
     provider: provider ?? null,
-    useAgent: Boolean(useAgent),
+    pipeline: 'langgraph',
+    useAgent: agentMode.enabled,
+    toolsConfigured: agentMode.configured,
   };
 
   if (!requestText) {
@@ -88,12 +94,37 @@ async function handleTasks(req, res) {
     return res.status(422).json(body);
   }
 
-  const providerName = provider || process.env.AI_PROVIDER || 'ollama';
+  const streamProgress = req.body?.stream === true;
 
   try {
-    const result = await handleTaskMessage(requestText, providerName, {
-      useAgent: Boolean(useAgent),
-    });
+    if (streamProgress) {
+      res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.flushHeaders?.();
+
+      const writeEvent = (payload) => {
+        res.write(`${JSON.stringify(payload)}\n`);
+      };
+
+      const result = await handleTaskMessage(requestText, providerName, {
+        useAgent,
+        onStreamEvent: (event) => writeEvent(event),
+      });
+
+      writeEvent({ type: 'done', ...result });
+
+      await logAiRequest({
+        route: 'POST /tasks',
+        requestText,
+        request: { ...requestMeta, stream: true },
+        response: result,
+        httpStatus: 200,
+        durationMs: Date.now() - started,
+      });
+      return res.end();
+    }
+
+    const result = await handleTaskMessage(requestText, providerName, { useAgent });
 
     await logAiRequest({
       route: 'POST /tasks',
@@ -115,6 +146,17 @@ async function handleTasks(req, res) {
       httpStatus: 502,
       durationMs: Date.now() - started,
     });
+    if (streamProgress && !res.headersSent) {
+      res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+    }
+    if (streamProgress) {
+      if (!res.headersSent) {
+        res.statusCode = 502;
+        res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+      }
+      res.write(`${JSON.stringify({ type: 'done', ...body })}\n`);
+      return res.end();
+    }
     res.status(502).json(body);
   }
 }

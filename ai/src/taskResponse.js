@@ -25,17 +25,3 @@ export function aiSuccess(action, data = null) {
     errors: null,
   };
 }
-
-/**
- * @param {unknown} data
- * @param {unknown[] | null} [tasksAfter]
- */
-export function withTasks(data, tasksAfter) {
-  if (!tasksAfter) {
-    return data;
-  }
-  if (data && typeof data === 'object') {
-    return { ...data, tasks: tasksAfter };
-  }
-  return { tasks: tasksAfter };
-}

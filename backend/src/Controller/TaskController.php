@@ -43,9 +43,11 @@ final class TaskController
             return $this->json($response, ['error' => 'Title is required'], 422);
         }
 
-        $priority = self::parsePriority($body['priority'] ?? 2);
-        if ($priority === null) {
-            return $this->json($response, ['error' => 'Priority must be 1, 2 or 3'], 422);
+        $priority = array_key_exists('priority', $body)
+            ? self::parsePriorityForUpdate($body['priority'])
+            : null;
+        if ($priority === false) {
+            return $this->json($response, ['error' => 'Priority must be 1, 2, 3 or null'], 422);
         }
 
         $task = $this->tasks->create(
@@ -81,9 +83,13 @@ final class TaskController
             return $this->json($response, ['error' => 'Title is required'], 422);
         }
 
-        $priority = self::parsePriority($body['priority'] ?? null);
-        if ($priority === null) {
-            return $this->json($response, ['error' => 'Priority must be 1, 2 or 3'], 422);
+        if (!array_key_exists('priority', $body)) {
+            return $this->json($response, ['error' => 'Priority is required (1, 2, 3 or null)'], 422);
+        }
+
+        $priority = self::parsePriorityForUpdate($body['priority']);
+        if ($priority === false) {
+            return $this->json($response, ['error' => 'Priority must be 1, 2, 3 or null'], 422);
         }
 
         $task = $this->tasks->update(
@@ -129,6 +135,18 @@ final class TaskController
         $priority = (int) $value;
 
         return in_array($priority, [1, 2, 3], true) ? $priority : null;
+    }
+
+    /** @return int|null|false null = clear status, int = 1|2|3, false = invalid */
+    private static function parsePriorityForUpdate(mixed $value): int|null|false
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        $parsed = self::parsePriority($value);
+
+        return $parsed ?? false;
     }
 
     private static function parseBurning(mixed $value): bool

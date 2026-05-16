@@ -48,7 +48,7 @@ export function filterTasks({ q, priorities, burningOnly }) {
   return request(`/api/tasks/filter${query ? `?${query}` : ''}`);
 }
 
-export function createTask({ title, priority = 2, is_burning = false }) {
+export function createTask({ title, priority = null, is_burning = false }) {
   return request('/api/tasks', {
     method: 'POST',
     body: JSON.stringify({ title, priority, is_burning }),

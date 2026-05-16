@@ -10,7 +10,7 @@ const emit = defineEmits(['close', 'save']);
 
 const form = reactive({
   title: '',
-  priority: 2,
+  priority: null,
   is_burning: false,
 });
 
@@ -48,8 +48,8 @@ function submit() {
 
         <label class="field">
           <span>Приоритет</span>
-          <select v-model.number="form.priority">
-            <option v-for="p in PRIORITIES" :key="p.value" :value="p.value">
+          <select v-model="form.priority">
+            <option v-for="p in PRIORITIES" :key="String(p.value)" :value="p.value">
               {{ p.label }}
             </option>
           </select>
