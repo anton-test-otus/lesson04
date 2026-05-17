@@ -5,13 +5,39 @@ import { executeTaskIntent } from './taskExecutor.js';
 
 const prioritySchema = z.union([z.literal(1), z.literal(2), z.literal(3)]);
 
+/**
+ * @param {string} name
+ * @param {unknown} input
+ * @param {() => Promise<Record<string, unknown>>} run
+ */
+async function runToolHandler(name, input, run) {
+  try {
+    const payload = await run();
+    const kind = typeof payload.kind === 'string' ? payload.kind : 'unknown';
+    const logEntry = { tool: name, kind, input, result: payload };
+
+    if (kind === 'reject') {
+      console.error('[ai/tool]', JSON.stringify(logEntry));
+    } else {
+      console.info('[ai/tool]', JSON.stringify(logEntry));
+    }
+
+    return JSON.stringify(payload);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('[ai/tool]', JSON.stringify({ tool: name, input, error: message }));
+    throw error;
+  }
+}
+
 export function buildTaskTools() {
   return [
     tool(
-      async () => {
-        const tasks = await tasksApi.listTasks();
-        return JSON.stringify({ kind: 'tasks', tasks });
-      },
+      async (input = {}) =>
+        runToolHandler('list_tasks', input, async () => {
+          const tasks = await tasksApi.listTasks();
+          return { kind: 'tasks', tasks };
+        }),
       {
         name: 'list_tasks',
         description: 'Получить все задачи',
@@ -19,14 +45,16 @@ export function buildTaskTools() {
       }
     ),
     tool(
-      async ({ q, priorities, burning_only }) => {
-        const tasks = await tasksApi.filterTasks({
-          q: q || undefined,
-          priorities: priorities?.length ? priorities : undefined,
-          burningOnly: burning_only,
-        });
-        return JSON.stringify({ kind: 'tasks', tasks });
-      },
+      async (input) =>
+        runToolHandler('filter_tasks', input, async () => {
+          const { q, priorities, burning_only } = input;
+          const tasks = await tasksApi.filterTasks({
+            q: q || undefined,
+            priorities: priorities?.length ? priorities : undefined,
+            burningOnly: burning_only,
+          });
+          return { kind: 'tasks', tasks };
+        }),
       {
         name: 'filter_tasks',
         description:
@@ -39,14 +67,16 @@ export function buildTaskTools() {
       }
     ),
     tool(
-      async ({ title, priority, is_burning }) => {
-        const task = await tasksApi.createTask({
-          title,
-          priority: priority ?? null,
-          is_burning: is_burning ?? false,
-        });
-        return JSON.stringify({ kind: 'task', task });
-      },
+      async (input) =>
+        runToolHandler('create_task', input, async () => {
+          const { title, priority, is_burning } = input;
+          const task = await tasksApi.createTask({
+            title,
+            priority: priority ?? null,
+            is_burning: is_burning ?? false,
+          });
+          return { kind: 'task', task };
+        }),
       {
         name: 'create_task',
         description: 'Создать одну задачу',
@@ -58,10 +88,11 @@ export function buildTaskTools() {
       }
     ),
     tool(
-      async ({ titles }) => {
-        const result = await tasksApi.createTasksBatch(titles);
-        return JSON.stringify({ kind: 'batch', ...result });
-      },
+      async (input) =>
+        runToolHandler('create_tasks_batch', input, async () => {
+          const result = await tasksApi.createTasksBatch(input.titles);
+          return { kind: 'batch', ...result };
+        }),
       {
         name: 'create_tasks_batch',
         description: 'Создать несколько задач (массив названий)',
@@ -71,10 +102,12 @@ export function buildTaskTools() {
       }
     ),
     tool(
-      async ({ id, title, priority, is_burning }) => {
-        const task = await tasksApi.updateTask(id, { title, priority, is_burning });
-        return JSON.stringify({ kind: 'task', task });
-      },
+      async (input) =>
+        runToolHandler('update_task', input, async () => {
+          const { id, title, priority, is_burning } = input;
+          const task = await tasksApi.updateTask(id, { title, priority, is_burning });
+          return { kind: 'task', task };
+        }),
       {
         name: 'update_task',
         description: 'Обновить задачу по id',
@@ -87,19 +120,21 @@ export function buildTaskTools() {
       }
     ),
     tool(
-      async ({ q, priorities, burning_only, ids, set_priority, set_is_burning, bump_priority }) => {
-        const result = await executeTaskIntent({
-          action: 'update_many',
-          q,
-          priorities,
-          burning_only,
-          ids,
-          set_priority,
-          set_is_burning,
-          bump_priority,
-        });
-        return JSON.stringify(result);
-      },
+      async (input) =>
+        runToolHandler('update_tasks_bulk', input, async () => {
+          const { q, priorities, burning_only, ids, set_priority, set_is_burning, bump_priority } =
+            input;
+          return executeTaskIntent({
+            action: 'update_many',
+            q,
+            priorities,
+            burning_only,
+            ids,
+            set_priority,
+            set_is_burning,
+            bump_priority,
+          });
+        }),
       {
         name: 'update_tasks_bulk',
         description:
@@ -127,16 +162,17 @@ export function buildTaskTools() {
       }
     ),
     tool(
-      async ({ q, priorities, burning_only, ids }) => {
-        const result = await executeTaskIntent({
-          action: 'delete_many',
-          q,
-          priorities,
-          burning_only,
-          ids,
-        });
-        return JSON.stringify(result);
-      },
+      async (input) =>
+        runToolHandler('delete_tasks_bulk', input, async () => {
+          const { q, priorities, burning_only, ids } = input;
+          return executeTaskIntent({
+            action: 'delete_many',
+            q,
+            priorities,
+            burning_only,
+            ids,
+          });
+        }),
       {
         name: 'delete_tasks_bulk',
         description:
@@ -150,10 +186,11 @@ export function buildTaskTools() {
       }
     ),
     tool(
-      async ({ id }) => {
-        await tasksApi.deleteTask(id);
-        return JSON.stringify({ kind: 'deleted', id });
-      },
+      async (input) =>
+        runToolHandler('delete_task', input, async () => {
+          await tasksApi.deleteTask(input.id);
+          return { kind: 'deleted', id: input.id };
+        }),
       {
         name: 'delete_task',
         description: 'Удалить одну задачу по id',

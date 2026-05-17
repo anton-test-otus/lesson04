@@ -7,6 +7,8 @@
 ## Содержание
 
 - [Возможности](#возможности)
+- [Интерфейс](#интерфейс)
+- [Отчёт LangChain / tools](report.md)
 - [Архитектура](#архитектура)
 - [Структура проекта](#структура-проекта)
 - [Быстрый старт](#быстрый-старт)
@@ -23,7 +25,7 @@
 - [LM Studio и Docker](#lm-studio-и-docker)
   - [Два разных URL](#два-разных-url)
   - [Serve on Local Network](#serve-on-local-network-доступ-из-docker)
-- [Переменные в `docker-compose.yml](#переменные-в-docker-composeyml)`
+- [Переменные в `docker-compose.yml`](#переменные-в-docker-composeyml)
 - [Схема БД](#схема-бд)
 - [Промпты разработки](#промпты-разработки)
 - [Makefile](#makefile)
@@ -38,7 +40,21 @@
 - Фильтрация: поиск по названию (`*` внутри слова), несколько приоритетов, только горящие (логика **И**)
 - Редактирование задачи в модальном окне
 - AI-чат (LangChain.js): Ollama, LM Studio, OpenAI
-- Статусы в шапке: **API: ok** и **AI: ok** (с проверкой доступности провайдера)
+- Статусы в шапке: **API**, **AI**, **Graph**, **Tools** (доступность API и провайдера LLM)
+
+---
+
+## Интерфейс
+
+Главный экран: список задач, статусы **API** / **AI** / **Graph** / **Tools**, блок «Управление задачами» (команды на естественном языке).
+
+![Главный экран приложения](./images/01-app.png)
+
+При выполнении команды открывается модальное окно **«Обработка команды»** — пошаговый разбор LangGraph (lexical → план API → выполнение). При ошибке шаги и причина отклонения подсвечиваются в том же окне.
+
+![Обработка команды ИИ](./images/02-llm-processing.png)
+
+Скриншоты хранятся в каталоге [`images/`](images/). Подробный отчёт по критериям LangChain, логам и system-промптам: [`report.md`](report.md).
 
 ---
 
@@ -78,6 +94,8 @@ lesson04/
 │   └── db/
 ├── docker-compose.yml
 ├── Makefile          # сборка, статус, логи
+├── images/           # скриншоты (README)
+├── report.md         # отчёт по LangChain / tools
 ├── prompts.md        # промпты при разработке (Cursor)
 ├── .env.example
 └── .env              # не в git
@@ -261,7 +279,7 @@ curl -s http://localhost/ai/providers | jq
 
 ### Команды задач на естественном языке (`POST /ai/tasks`)
 
-LangChain (LangGraph) разбирает запрос и вызывает REST API задач (`/api/tasks`, `/api/tasks/filter`, …). Схема — [LangGraph для `/ai/tasks`](#langgraph-для-aitasks).
+LangChain (LangGraph) разбирает запрос и вызывает REST API задач (`/api/tasks`, `/api/tasks/filter`, …). Схема — [LangGraph для `/ai/tasks`](#langgraph-для-aitasks). Визуально шаги разбора — в [модальном окне обработки](#интерфейс) (`images/02-llm-processing.png`).
 
 ```bash
 curl -X POST http://localhost/ai/tasks \
