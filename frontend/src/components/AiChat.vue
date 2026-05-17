@@ -7,7 +7,6 @@ const emit = defineEmits(['ai-result', 'graph-step', 'graph-idle']);
 
 const providers = ref(null);
 const selectedProvider = ref('');
-const useAgent = ref(false);
 const message = ref('');
 const reply = ref('');
 const loading = ref(false);
@@ -19,11 +18,29 @@ onMounted(async () => {
   try {
     providers.value = await api.aiProviders();
     selectedProvider.value = providers.value.default;
-    useAgent.value = Boolean(providers.value.tasksAgent?.configured);
   } catch (e) {
     error.value = e.message;
   }
 });
+
+function appendParseReject(reason, source = 'client') {
+  const text =
+    typeof reason === 'string' && reason.trim()
+      ? reason.trim()
+      : Array.isArray(reason)
+        ? reason.filter(Boolean).join('; ')
+        : '';
+  if (!text) {
+    return;
+  }
+  const hasSame = parseEvents.value.some(
+    (ev) => ev.type === 'reject' && (ev.reason === text || ev.errors?.join?.('; ') === text)
+  );
+  if (hasSame) {
+    return;
+  }
+  parseEvents.value = [...parseEvents.value, { type: 'reject', reason: text, source }];
+}
 
 function handleStreamEvent(event) {
   parseEvents.value = [...parseEvents.value, event];
@@ -44,7 +61,6 @@ async function send() {
     const result = await api.aiTasks({
       message: message.value.trim(),
       provider: selectedProvider.value || undefined,
-      useAgent: useAgent.value,
       onStreamEvent: handleStreamEvent,
     });
     if (result.status === 'error') {
@@ -52,6 +68,7 @@ async function send() {
       error.value = Array.isArray(errors)
         ? errors.join('; ')
         : errors || 'Не удалось выполнить команду';
+      appendParseReject(error.value, 'response');
       return;
     }
     reply.value = result.action || '';
@@ -64,6 +81,7 @@ async function send() {
     }, 1200);
   } catch (e) {
     error.value = e.message;
+    appendParseReject(e.message, 'client');
   } finally {
     loading.value = false;
     emit('graph-idle');
@@ -95,13 +113,8 @@ function onTextareaKeydown(event) {
     </p>
     <p class="ai-hint">
       Примеры: «создай задачу купить молоко», список «добавь задачи:» и с новой строки пункты (с «-» или без),
-      «найди задачи тест* с низким приоритетом», «покажи горящие», «потуши Docker».
+      «найди задачи тест* с низким приоритетом», «покажи горящие».
     </p>
-
-    <label v-if="providers?.tasksAgent?.agentCapable" class="field field-checkbox">
-      <input v-model="useAgent" type="checkbox" :disabled="loading" />
-      <span>Tool-calling (ReAct + tools)</span>
-    </label>
 
     <label class="field">
       <span>Провайдер</span>

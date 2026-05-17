@@ -27,6 +27,7 @@ const OPERATION_LABELS = {
   find: 'Найти / показать',
   list: 'Список всех задач',
   mutate: 'Найти и изменить',
+  sequence: 'Цепочка действий',
   reject: 'Отклонено',
   unknown: 'Неизвестно',
 };
@@ -90,6 +91,11 @@ const timeline = computed(() => {
       if (isReject && lx.reject_reason) {
         lines.push(`Причина: ${lx.reject_reason}`);
       }
+      if (lx.actions?.length) {
+        lines.push(
+          `Шаги: ${lx.actions.map((op) => OPERATION_LABELS[op] ?? op).join(' → ')}`
+        );
+      }
       if (lx.operation) {
         lines.push(`Операция: ${OPERATION_LABELS[lx.operation] ?? lx.operation}`);
       }
@@ -142,7 +148,11 @@ const timeline = computed(() => {
       if (isReject && plan.intent?.reason) {
         lines.push(`Причина: ${plan.intent.reason}`);
       }
-      if (plan.intent_action) {
+      if (plan.intent_actions?.length > 1) {
+        lines.push(
+          `Цепочка: ${plan.intent_actions.map((a) => OPERATION_LABELS[a] ?? a).join(' → ')}`
+        );
+      } else if (plan.intent_action) {
         lines.push(`Действие: ${OPERATION_LABELS[plan.intent_action] ?? plan.intent_action}`);
       }
       for (const step of plan.steps ?? []) {
@@ -177,17 +187,26 @@ const timeline = computed(() => {
     }
 
     if (ev.type === 'execute') {
+      const stepPrefix =
+        ev.step_total > 1 ? `Шаг ${ev.step_index}/${ev.step_total}: ` : '';
       items.push({
         key: `exec-${items.length}`,
         kind: 'step',
-        title: `Вызов API (${ev.intent_action ?? '…'})`,
+        title: `${stepPrefix}Вызов API (${ev.intent_action ?? '…'})`,
         status: props.loading ? 'active' : 'done',
       });
       continue;
     }
 
     if (ev.type === 'execute_done') {
-      const last = [...items].reverse().find((i) => i.title.startsWith('Вызов API'));
+      const last = [...items]
+        .reverse()
+        .find(
+          (i) =>
+            i.title.includes('Вызов API') &&
+            (ev.step_total <= 1 ||
+              i.title.startsWith(`Шаг ${ev.step_index}/${ev.step_total}:`))
+        );
       if (last) {
         if (ev.kind === 'reject') {
           last.status = 'reject';
@@ -200,6 +219,15 @@ const timeline = computed(() => {
             last.detail = `Результат: ${ev.kind}${ev.count != null ? ` (${ev.count})` : ''}`;
           }
         }
+      }
+    }
+  }
+
+  const hasReject = items.some((i) => i.kind === 'reject' || i.status === 'reject');
+  if (!props.loading && hasReject) {
+    for (const item of items) {
+      if (item.status === 'active') {
+        item.status = 'reject';
       }
     }
   }

@@ -1,6 +1,7 @@
 import { lexicalParseMessage } from './lexicalParse.js';
 import { LEXICAL_PARSE_SYSTEM, LexicalParseSchema } from './lexicalParseSchema.js';
 import { invokeStructuredSchema } from './llmStructured.js';
+import { expandSequentialLexical } from './sequentialActions.js';
 import { formatTasksContext } from './taskIntentParse.js';
 
 /**
@@ -23,17 +24,25 @@ function normalizeLexicalParse(parsed, raw) {
     };
   }
 
-  return {
+  const base = {
     operation: operation === 'reject' ? 'reject' : operation,
     keywords: {},
     filter: parsed.filter ?? {},
     mutation: parsed.mutation ?? {},
     create: parsed.create ?? {},
     matched: parsed.detected_phrases ?? [],
+    actions: parsed.actions,
     complete: parsed.complete && operation !== null && operation !== 'unknown',
     raw,
     reject_reason: parsed.reject_reason,
   };
+
+  if (parsed.actions?.length >= 2) {
+    base.operation = 'sequence';
+    base.complete = parsed.complete;
+  }
+
+  return expandSequentialLexical(base);
 }
 
 /**

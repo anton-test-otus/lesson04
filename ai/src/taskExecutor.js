@@ -3,6 +3,7 @@ import {
   bumpPriorityUp,
   validateBumpForTargets,
 } from './priorityLadder.js';
+import { resolveIntentWithPreviousTasks } from './sequentialActions.js';
 import * as tasksApi from './tasksApi.js';
 
 function resolvePriority(current, intent) {
@@ -39,6 +40,184 @@ async function selectTasks(intent) {
   }
 
   return tasksApi.listTasks();
+}
+
+/**
+ * @param {object[]} intents
+ * @param {{
+ *   onStepStart?: (index: number, intent: object, total: number) => void,
+ *   onStepDone?: (index: number, intent: object, result: object, total: number) => void,
+ * }} [options]
+ */
+export async function executeTaskIntents(intents, options = {}) {
+  if (!intents?.length) {
+    throw new Error('Нет действий для выполнения');
+  }
+
+  if (intents.length === 1) {
+    const rawIntent = intents[0];
+    options.onStepStart?.(0, rawIntent, 1);
+    const result = await executeTaskIntent(rawIntent);
+    options.onStepDone?.(0, rawIntent, result, 1);
+    return result;
+  }
+
+  /** @type {Array<{ intent: object, result: object }>} */
+  const results = [];
+  /** @type {Array<{ id: number }> | null} */
+  let previousTasks = null;
+  const total = intents.length;
+
+  for (let index = 0; index < intents.length; index++) {
+    const rawIntent = intents[index];
+
+    if (rawIntent.action === 'reject') {
+      return {
+        kind: 'reject',
+        reason: rawIntent.reason,
+        sequence: { results, failedAt: results.length },
+      };
+    }
+
+    options.onStepStart?.(index, rawIntent, total);
+
+    const intent = resolveIntentWithPreviousTasks(rawIntent, previousTasks);
+    const result = await executeTaskIntent(intent);
+
+    options.onStepDone?.(index, intent, result, total);
+
+    if (result?.kind === 'reject') {
+      return {
+        kind: 'reject',
+        reason: result.reason,
+        sequence: { results, failedAt: results.length },
+      };
+    }
+
+    results.push({ intent, result });
+
+    if (result.kind === 'tasks') {
+      previousTasks = result.tasks;
+    } else if (result.kind === 'update_many') {
+      previousTasks = result.updated;
+    }
+  }
+
+  return { kind: 'sequence', results };
+}
+
+/**
+ * @param {Array<{ id?: number }>} tasks
+ */
+function dedupeTasksById(tasks) {
+  const map = new Map();
+  for (const task of tasks) {
+    if (task?.id != null) {
+      map.set(task.id, task);
+    }
+  }
+  return [...map.values()];
+}
+
+/**
+ * Приводит результат executor к формату, понятному SPA (всегда с updated при мутациях).
+ * @param {object | null | undefined} execution
+ */
+export function executionToClientData(execution) {
+  if (!execution || typeof execution !== 'object') {
+    return null;
+  }
+
+  if (execution.kind === 'reject') {
+    return execution;
+  }
+
+  if (execution.kind === 'sequence') {
+    /** @type {object[]} */
+    const updated = [];
+    /** @type {object[]} */
+    const created = [];
+    /** @type {number[]} */
+    const deletedIds = [];
+    /** @type {object[] | null} */
+    let displayTasks = null;
+
+    for (const step of execution.results ?? []) {
+      const result = step?.result;
+      if (!result) {
+        continue;
+      }
+
+      switch (result.kind) {
+        case 'tasks':
+          displayTasks = result.tasks;
+          break;
+        case 'task':
+          if (result.task) {
+            updated.push(result.task);
+          }
+          break;
+        case 'update_many':
+          updated.push(...(result.updated ?? []));
+          break;
+        case 'batch':
+          created.push(...(result.created ?? []));
+          break;
+        case 'deleted':
+          if (result.id != null) {
+            deletedIds.push(result.id);
+          }
+          break;
+        case 'delete_many':
+          deletedIds.push(...(result.ids ?? []));
+          break;
+        default:
+          break;
+      }
+    }
+
+    const uniqueUpdated = dedupeTasksById(updated);
+    const uniqueCreated = dedupeTasksById(created);
+    const uniqueDeleted = [...new Set(deletedIds)];
+
+    if (uniqueUpdated.length) {
+      return {
+        kind: 'update_many',
+        updated: uniqueUpdated,
+        count: uniqueUpdated.length,
+      };
+    }
+    if (uniqueDeleted.length) {
+      return {
+        kind: 'delete_many',
+        ids: uniqueDeleted,
+        count: uniqueDeleted.length,
+      };
+    }
+    if (uniqueCreated.length) {
+      return {
+        kind: 'batch',
+        created: uniqueCreated,
+        count: uniqueCreated.length,
+      };
+    }
+    if (displayTasks) {
+      return { kind: 'tasks', tasks: displayTasks };
+    }
+
+    return { kind: 'sequence', results: execution.results };
+  }
+
+  if (execution.kind === 'update_many') {
+    const updated = dedupeTasksById(execution.updated ?? []);
+    return {
+      ...execution,
+      updated,
+      count: execution.count ?? updated.length,
+    };
+  }
+
+  return execution;
 }
 
 export async function executeTaskIntent(intent) {
@@ -185,6 +364,13 @@ export function buildReply(intent, result) {
     default:
       return 'Готово.';
   }
+}
+
+/**
+ * @param {Array<{ intent: object, result: object }>} results
+ */
+export function buildReplyFromSequence(results) {
+  return results.map(({ intent, result }) => buildReply(intent, result)).join('\n\n');
 }
 
 function formatTasksList(tasks, heading) {

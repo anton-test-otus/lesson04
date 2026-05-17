@@ -1,8 +1,15 @@
 import { isDeleteAllCommand } from './parseDeleteAllMessage.js';
 import { parseTaskListFromMessage } from './parseTaskListMessage.js';
+import { expandSequentialLexical } from './sequentialActions.js';
 
 /**
- * @typedef {'create' | 'create_batch' | 'delete' | 'delete_many' | 'find' | 'list' | 'mutate' | null} LexicalOperation
+ * @typedef {'create' | 'create_batch' | 'delete' | 'delete_many' | 'find' | 'list' | 'mutate' | 'sequence' | null} LexicalOperation
+ * @typedef {{
+ *   operation: Exclude<LexicalOperation, null | 'sequence'>,
+ *   filter?: LexicalFilter,
+ *   mutation?: LexicalMutation,
+ *   create?: LexicalCreate,
+ * }} LexicalAction
  * @typedef {{
  *   taskCreate?: boolean,
  *   taskDelete?: boolean,
@@ -37,6 +44,7 @@ import { parseTaskListFromMessage } from './parseTaskListMessage.js';
  *   mutation: LexicalMutation,
  *   create: LexicalCreate,
  *   matched: string[],
+ *   actions?: LexicalAction[],
  *   complete: boolean,
  *   raw: string,
  * }} LexicalParse
@@ -47,7 +55,7 @@ const PATTERNS = {
   taskDelete:
     /(?:^|[\s,.:;])(?:удали|удалить|удаляй|убери|убрать|убирай|очисти|очистить)(?:[\s,.:;]|$)/i,
   taskFind:
-    /(?:^|[\s,.:;])(?:найди|найти|ищи|искать|покажи|показать|выведи|вывести|отфильтруй|отфильтровать|фильтр|отбор)(?:[\s,.:;]|$)/i,
+    /(?:^|[\s,.:;])(?:найди|найти|ищи|искать|покажи|показать|выведи|вывести|отфильтруй|отфильтровать|фильтр|отбор|поиск|поищи)(?:[\s,.:;]|$)/i,
   priorityApply:
     /(?:^|[\s,.:;])(?:примени|применить|установи|установить|назначь|назначить|поставь|поставить|задай|задать)(?:[\s,.:;]|$)/i,
   priorityAdd:
@@ -68,7 +76,7 @@ const PATTERNS = {
 };
 
 const FIND_PREFIX =
-  /^(?:найди|найти|ищи|искать|покажи|показать|выведи|вывести|отфильтруй|отфильтровать|фильтр)\s+(?:все\s+)?(?:задач[а-яё]*\s+)?/i;
+  /^(?:найди|найти|ищи|искать|покажи|показать|выведи|вывести|отфильтруй|отфильтровать|фильтр|поиск|поищи)\s+(?:все\s+)?(?:задач[а-яё]*\s+)?/i;
 
 const LEXICAL_PRIORITY = [
   { pattern: /(?:^|[\s,.:;])(?:с|со)\s+низк(?:им|ий|ого)?\s+приоритет(?:ом|а)?(?=[\s,.:;]|$)/gi, values: [3] },
@@ -391,7 +399,7 @@ export function lexicalParseMessage(message) {
   const operation = resolveOperation(keywords, filter, mutation, create);
   const complete = isParseComplete(operation, filter, mutation, create);
 
-  return {
+  return expandSequentialLexical({
     operation,
     keywords,
     filter,
@@ -400,5 +408,5 @@ export function lexicalParseMessage(message) {
     matched,
     complete,
     raw,
-  };
+  });
 }

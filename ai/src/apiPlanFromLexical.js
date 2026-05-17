@@ -9,23 +9,72 @@
  * @typedef {{
  *   steps: ApiPlanStep[],
  *   intent: object | null,
+ *   intents: object[] | null,
  *   complete: boolean,
  * }} ApiPlan
  */
 
 /**
- * Нода 2: лексический разбор → intent + план REST API.
+ * Нода 2: лексический разбор → intent(s) + план REST API.
  * @param {import('./lexicalParse.js').LexicalParse} lexical
  * @returns {ApiPlan}
  */
 export function buildApiPlanFromLexical(lexical) {
+  if (lexical.operation === 'sequence' && lexical.actions?.length) {
+    /** @type {object[]} */
+    const intents = [];
+    /** @type {ApiPlanStep[]} */
+    const steps = [];
+
+    for (const action of lexical.actions) {
+      const part = buildApiPlanFromLexical({
+        ...lexical,
+        operation: action.operation,
+        filter: action.filter ?? {},
+        mutation: action.mutation ?? {},
+        create: action.create ?? {},
+        complete: true,
+      });
+
+      if (!part.complete || !part.intents?.length) {
+        return { steps: [], intent: null, intents: null, complete: false };
+      }
+
+      intents.push(...part.intents);
+      steps.push(...part.steps);
+    }
+
+    return {
+      steps,
+      intents,
+      intent: intents[0] ?? null,
+      complete: intents.length > 0,
+    };
+  }
+
+  const single = buildSingleOperationPlan(lexical);
+  if (!single.intent) {
+    return { ...single, intents: null };
+  }
+
+  return {
+    ...single,
+    intents: [single.intent],
+  };
+}
+
+/**
+ * @param {import('./lexicalParse.js').LexicalParse} lexical
+ * @returns {ApiPlan}
+ */
+function buildSingleOperationPlan(lexical) {
   /** @type {ApiPlanStep[]} */
   const steps = [];
   /** @type {object | null} */
   let intent = null;
 
-  if (!lexical.complete || !lexical.operation) {
-    return { steps, intent: null, complete: false };
+  if (!lexical.complete || !lexical.operation || lexical.operation === 'sequence') {
+    return { steps, intent: null, intents: null, complete: false };
   }
 
   const { filter, mutation, create } = lexical;
@@ -140,10 +189,10 @@ export function buildApiPlanFromLexical(lexical) {
     }
 
     default:
-      return { steps: [], intent: null, complete: false };
+      return { steps: [], intent: null, intents: null, complete: false };
   }
 
-  return { steps, intent, complete: Boolean(intent) };
+  return { steps, intent, intents: null, complete: Boolean(intent) };
 }
 
 /**

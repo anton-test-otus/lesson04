@@ -31,6 +31,19 @@ async function request(path, options = {}, service = 'API') {
   return data;
 }
 
+function emitStreamReject(body, onStreamEvent) {
+  if (body?.status !== 'error' || !onStreamEvent) {
+    return;
+  }
+  const reason = Array.isArray(body.errors) ? body.errors.join('; ') : body.errors;
+  onStreamEvent({
+    type: 'reject',
+    reason: reason || 'Не удалось выполнить команду',
+    errors: body.errors,
+    source: 'done',
+  });
+}
+
 function wrapAi(promise) {
   return promise.catch((error) => {
     const raw = error?.message || '';
@@ -88,13 +101,13 @@ export const api = {
         'AI'
       )
     ),
-  aiTasks: async ({ message, provider, useAgent, onGraphStep, onStreamEvent }) => {
+  aiTasks: async ({ message, provider, onGraphStep, onStreamEvent }) => {
     let response;
     try {
       response = await fetch(`${API_URL}/ai/tasks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message, provider, useAgent, stream: true }),
+        body: JSON.stringify({ message, provider, stream: true }),
       });
     } catch (cause) {
       throw new Error('AI: нет соединения с сервером', { cause });
@@ -139,6 +152,7 @@ export const api = {
         if (event.type === 'done') {
           const { type: _t, ...body } = event;
           result = body;
+          emitStreamReject(body, onStreamEvent);
         } else {
           onStreamEvent?.(event);
           if (event.type === 'step' && event.graph && event.node) {
@@ -153,6 +167,7 @@ export const api = {
       if (event.type === 'done') {
         const { type: _t, ...body } = event;
         result = body;
+        emitStreamReject(body, onStreamEvent);
       } else {
         onStreamEvent?.(event);
         if (event.type === 'step' && event.graph && event.node) {
@@ -166,6 +181,10 @@ export const api = {
     }
 
     if (!response.ok) {
+      if (result.status === 'error') {
+        emitStreamReject(result, onStreamEvent);
+        return wrapAi(Promise.resolve(result));
+      }
       throw new Error(
         extractApiError(result, `AI: ошибка запроса (HTTP ${response.status})`)
       );

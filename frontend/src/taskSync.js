@@ -3,13 +3,95 @@
  * @param {{ id: number }} task
  */
 function upsertTask(tasksRef, task) {
-  const list = tasksRef.value;
+  const list = [...tasksRef.value];
   const index = list.findIndex((t) => t.id === task.id);
   if (index >= 0) {
-    list[index] = task;
+    list[index] = { ...task };
   } else {
-    tasksRef.value = [...list, task];
+    list.push(task);
   }
+  tasksRef.value = list;
+}
+
+/**
+ * @param {object} result
+ */
+function collectFromSequenceStep(result, buckets) {
+  if (!result) {
+    return;
+  }
+
+  switch (result.kind) {
+    case 'tasks':
+      buckets.displayTasks = result.tasks;
+      break;
+    case 'task':
+      if (result.task) {
+        buckets.updated.push(result.task);
+      }
+      break;
+    case 'update_many':
+      buckets.updated.push(...(result.updated ?? []));
+      break;
+    case 'batch':
+      buckets.created.push(...(result.created ?? []));
+      break;
+    case 'deleted':
+      if (result.id != null) {
+        buckets.deletedIds.push(result.id);
+      }
+      break;
+    case 'delete_many':
+      buckets.deletedIds.push(...(result.ids ?? []));
+      break;
+    default:
+      break;
+  }
+}
+
+/**
+ * @param {{ value: Array<{ id: number }> }} tasksRef
+ * @param {object} data
+ */
+function applySequenceResults(tasksRef, data) {
+  const buckets = {
+    updated: [],
+    created: [],
+    deletedIds: [],
+    displayTasks: null,
+  };
+
+  for (const step of data.results ?? []) {
+    collectFromSequenceStep(step?.result, buckets);
+  }
+
+  let patched = false;
+
+  for (const task of buckets.updated) {
+    upsertTask(tasksRef, task);
+    patched = true;
+  }
+  for (const task of buckets.created) {
+    upsertTask(tasksRef, task);
+    patched = true;
+  }
+
+  const idSet = new Set(buckets.deletedIds);
+  if (idSet.size > 0) {
+    tasksRef.value = tasksRef.value.filter((t) => !idSet.has(t.id));
+    patched = true;
+  }
+
+  if (patched) {
+    return 'patch';
+  }
+
+  if (Array.isArray(buckets.displayTasks)) {
+    tasksRef.value = buckets.displayTasks;
+    return 'display';
+  }
+
+  return 'none';
 }
 
 /**
@@ -23,7 +105,7 @@ export function applyAiDataToTasks(tasksRef, data) {
 
   switch (data.kind) {
     case 'tasks':
-      tasksRef.value = Array.isArray(data.tasks) ? data.tasks : [];
+      tasksRef.value = Array.isArray(data.tasks) ? [...data.tasks] : [];
       return 'display';
     case 'task':
       if (data.task) {
@@ -39,7 +121,7 @@ export function applyAiDataToTasks(tasksRef, data) {
       for (const task of data.updated ?? []) {
         upsertTask(tasksRef, task);
       }
-      return 'patch';
+      return (data.updated?.length ?? 0) > 0 ? 'patch' : 'none';
     case 'deleted':
       if (data.id != null) {
         tasksRef.value = tasksRef.value.filter((t) => t.id !== data.id);
@@ -52,6 +134,8 @@ export function applyAiDataToTasks(tasksRef, data) {
       }
       return 'patch';
     }
+    case 'sequence':
+      return applySequenceResults(tasksRef, data);
     case 'agent':
       return 'reload';
     default:

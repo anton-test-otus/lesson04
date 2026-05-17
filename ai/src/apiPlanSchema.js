@@ -9,11 +9,27 @@ export const ApiPlanStepSchema = z.object({
   body: z.record(z.unknown()).optional(),
 });
 
-export const ApiPlanSchema = z.object({
-  steps: z.array(ApiPlanStepSchema).min(1),
-  intent: TaskIntentSchema,
-  complete: z.boolean(),
-});
+export const ApiPlanSchema = z
+  .object({
+    steps: z.array(ApiPlanStepSchema),
+    intent: TaskIntentSchema.optional(),
+    intents: z.array(TaskIntentSchema).min(1).max(4).optional(),
+    complete: z.boolean(),
+  })
+  .superRefine((data, ctx) => {
+    if (!data.intent && !data.intents?.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'intent or intents required',
+      });
+    }
+    if (data.intents?.some((i) => i.action === 'reject') && data.intents.length > 1) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'reject must be alone',
+      });
+    }
+  });
 
 export const API_PLAN_SYSTEM = `Ты планировщик REST API задач (шаг 2 из 2).
 На входе — JSON разбора команды (lexical) и исходная фраза пользователя.
@@ -35,9 +51,15 @@ export const API_PLAN_SYSTEM = `Ты планировщик REST API задач 
 | create_batch  | POST /api/tasks/batch                      | create_batch   |
 | delete_many   | GET /filter (если есть отбор), DELETE …    | delete_many    |
 | mutate        | GET /filter, POST …/update для каждой      | update_many    |
+| sequence      | шаги всех actions по порядку               | intents[]      |
 
-Для update_many в intent: те же q, priorities, burning_only что в filter; плюс set_priority / bump_priority / set_is_burning.
+Два действия в одной фразе (найди/отфильтруй/фильтр/поиск/поищи … и подними / удали / сними статус):
+- верни intents: [ { action: "filter", … }, { action: "update_many" | "delete_many", только изменения } ]
+- во втором intent НЕ дублируй q/priorities/burning_only — отбор уже в первом шаге
+- steps: GET /filter, затем POST …/update или DELETE для каждой
+
+Для одного mutate без sequence — update_many с критериями отбора в intent.
 Не смешивай set_priority и bump_priority.
 
-complete: true если intent соответствует API и разбору lexical.
-Если lexical.operation reject — intent: { action: "reject", reason: "..." }, steps: [].`;
+complete: true если intent/intents соответствуют API и разбору lexical.
+Если lexical.operation reject — intents: [{ action: "reject", reason: "..." }], steps: [].`;

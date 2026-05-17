@@ -10,15 +10,17 @@ import { invokeStructuredSchema } from './llmStructured.js';
  */
 export async function buildApiPlanWithLlm(model, lexical, message, tasksContext) {
   if (lexical.operation === 'reject') {
+    const rejectIntent = { action: 'reject', reason: lexical.reject_reason };
     return {
       steps: [],
-      intent: { action: 'reject', reason: lexical.reject_reason },
+      intents: [rejectIntent],
+      intent: rejectIntent,
       complete: true,
     };
   }
 
   if (!lexical.complete || !lexical.operation) {
-    return { steps: [], intent: null, complete: false };
+    return { steps: [], intent: null, intents: null, complete: false };
   }
 
   const humanText = [
@@ -28,6 +30,7 @@ export async function buildApiPlanWithLlm(model, lexical, message, tasksContext)
     JSON.stringify(
       {
         operation: lexical.operation,
+        actions: lexical.actions,
         detected_phrases: lexical.matched,
         filter: lexical.filter,
         mutation: lexical.mutation,
@@ -48,10 +51,17 @@ export async function buildApiPlanWithLlm(model, lexical, message, tasksContext)
       humanText
     );
 
-    if (plan.complete && plan.intent) {
+    const intents = plan.intents?.length
+      ? plan.intents
+      : plan.intent
+        ? [plan.intent]
+        : null;
+
+    if (plan.complete && intents?.length) {
       return {
-        steps: plan.steps,
-        intent: plan.intent,
+        steps: plan.steps ?? [],
+        intents,
+        intent: intents[0],
         complete: true,
       };
     }

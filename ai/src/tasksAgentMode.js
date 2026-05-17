@@ -5,39 +5,21 @@ function envAgentEnabled() {
 }
 
 /**
- * @param {unknown} requestUseAgent
- * @returns {boolean | undefined}
- */
-function parseRequestUseAgent(requestUseAgent) {
-  if (requestUseAgent === true || requestUseAgent === 'true') {
-    return true;
-  }
-  if (requestUseAgent === false || requestUseAgent === 'false') {
-    return false;
-  }
-  return undefined;
-}
-
-/**
- * Tool-calling (createReactAgent) доступен для lmstudio/openai с поддержкой tools.
+ * Tool-calling (createReactAgent) включается переменной AI_TASKS_USE_AGENT=true
+ * и доступен только для lmstudio/openai.
  * @param {string} [providerOverride]
- * @param {unknown} [requestUseAgent]
  */
-export function resolveTasksAgentMode(providerOverride, requestUseAgent) {
+export function resolveTasksAgentMode(providerOverride) {
   const provider = normalizeProvider(providerOverride || process.env.AI_PROVIDER || 'ollama');
   const configured = envAgentEnabled();
   const agentCapable = ['lmstudio', 'openai'].includes(provider);
-  const requested = parseRequestUseAgent(requestUseAgent);
-  const useAgent = requested ?? configured;
-  const enabled = useAgent && agentCapable;
+  const enabled = configured && agentCapable;
 
   return {
     enabled,
     configured,
     agentCapable,
     provider,
-    requested: requested ?? null,
-    useAgent,
     label: enabled ? 'on' : 'off',
   };
 }

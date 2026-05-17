@@ -175,6 +175,7 @@ curl "http://localhost/api/tasks/filter?q=Наст*ить&priority=1&burning_onl
 | -------------------- | ------------------------------------- | ---------------------------------------------------------------------- |
 | `AI_PROVIDER`        | `ollama`                              | Провайдер по умолчанию                                                 |
 | `AI_TEMPERATURE`     | `0.7`                                 | Температура (0–2)                                                      |
+| `AI_TASKS_USE_AGENT` | `false`                               | `true` — fallback ReAct + tools для `/ai/tasks` (только lmstudio/openai) |
 | `OLLAMA_BASE_URL`    | `http://host.docker.internal:11434`   | URL Ollama                                                             |
 | `OLLAMA_MODEL`       | `llama3.2`                            | Модель Ollama                                                          |
 | `LMSTUDIO_BASE_URL`  | `http://host.docker.internal:1234/v1` | OpenAI-совместимый API LM Studio                                       |
@@ -205,7 +206,7 @@ START → lexical_parse → api_plan → execute? | tool_agent? | parse_intent? 
 
 - Сначала всегда лексический разбор; при `complete` — сразу `execute`.
 - Иначе — tools или LLM.
-- Переключатель: `AI_TASKS_USE_AGENT` в `.env` или `"useAgent": true` в `POST /ai/tasks`.
+- Fallback **tool-calling** включается только переменной `AI_TASKS_USE_AGENT=true` в `.env` (после изменения — `docker compose up -d --build ai`). Работает при провайдере **lmstudio** или **openai**; для **ollama** узел `tool_agent` не используется. В UI переключателя нет; статус **Tools** в шапке — `on`/`off` из `GET /ai/health`.
 - Двухшаговые формулировки («найди Docker и удали») — одно намерение `update_many` / `delete_many` с тем же `q`, выполнение в коде, не в LLM-цикле.
 - Провайдеры: **Ollama**, **LM Studio**, **OpenAI**.
 - В `GET /ai/health` поле `tasksGraph.label` = `graph`.

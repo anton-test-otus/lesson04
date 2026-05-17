@@ -2,6 +2,7 @@ import { createChatModel, normalizeProvider } from './llm.js';
 import { formatLlmError } from './providerHealth.js';
 import { formatTasksContext } from './taskIntentParse.js';
 import { getTaskGraph, TASK_GRAPH_NAME } from './taskGraph.js';
+import { resolveTasksAgentMode } from './tasksAgentMode.js';
 import * as tasksApi from './tasksApi.js';
 
 export { TASK_GRAPH_NAME };
@@ -10,7 +11,6 @@ export { TASK_GRAPH_NAME };
  * @param {string} message
  * @param {string} [providerOverride]
  * @param {{
- *   useAgent?: boolean,
  *   onGraphStep?: (payload: { graph: string, node: string }) => void,
  *   onStreamEvent?: (event: object) => void,
  * }} [options]
@@ -21,7 +21,8 @@ export async function handleTaskMessage(message, providerOverride, options = {})
   const tasks = await tasksApi.listTasks();
   const tasksContext = formatTasksContext(tasks);
   const trimmed = message.trim();
-  const { onGraphStep, onStreamEvent, useAgent } = options;
+  const { onGraphStep, onStreamEvent } = options;
+  const agentMode = resolveTasksAgentMode(provider);
 
   const emit = (event) => {
     onStreamEvent?.(event);
@@ -40,12 +41,13 @@ export async function handleTaskMessage(message, providerOverride, options = {})
         tasksContext,
         lexical: null,
         apiPlan: null,
+        intents: null,
         intent: null,
         execution: null,
         output: null,
       },
       {
-        configurable: { onStreamEvent: emit, provider, useAgent },
+        configurable: { onStreamEvent: emit, provider, useAgent: agentMode.enabled },
       }
     );
 

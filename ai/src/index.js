@@ -70,10 +70,10 @@ async function diagnoseHandler(_req, res) {
 
 async function handleTasks(req, res) {
   const started = Date.now();
-  const { message, provider, useAgent } = req.body ?? {};
+  const { message, provider } = req.body ?? {};
   const requestText = typeof message === 'string' ? message.trim() : '';
   const providerName = provider || process.env.AI_PROVIDER || 'ollama';
-  const agentMode = resolveTasksAgentMode(providerName, useAgent);
+  const agentMode = resolveTasksAgentMode(providerName);
   const requestMeta = {
     provider: provider ?? null,
     pipeline: 'langgraph',
@@ -107,7 +107,6 @@ async function handleTasks(req, res) {
       };
 
       const result = await handleTaskMessage(requestText, providerName, {
-        useAgent,
         onStreamEvent: (event) => writeEvent(event),
       });
 
@@ -124,7 +123,7 @@ async function handleTasks(req, res) {
       return res.end();
     }
 
-    const result = await handleTaskMessage(requestText, providerName, { useAgent });
+    const result = await handleTaskMessage(requestText, providerName);
 
     await logAiRequest({
       route: 'POST /tasks',
@@ -154,6 +153,15 @@ async function handleTasks(req, res) {
         res.statusCode = 502;
         res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
       }
+      const reason = Array.isArray(body.errors) ? body.errors.join('; ') : body.errors;
+      res.write(
+        `${JSON.stringify({
+          type: 'reject',
+          reason,
+          errors: body.errors,
+          source: 'error',
+        })}\n`
+      );
       res.write(`${JSON.stringify({ type: 'done', ...body })}\n`);
       return res.end();
     }
