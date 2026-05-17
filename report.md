@@ -66,19 +66,19 @@ export async function runTaskToolAgent({ model, message, tasksContext }) {
 
 | Tool | Строки объявления | Строки вызова API | REST (через `ai/src/tasksApi.js`) |
 |------|-------------------|-------------------|-----------------------------------|
-| `list_tasks` | L10–L19 | L11–L13 | `GET /api/tasks` (tasksApi.js L38–40) |
-| `filter_tasks` | L21–L39 | L22–L28 | `GET /api/tasks/filter` (L42–48) |
-| `create_task` | L41–L58 | L42–L48 | `POST /api/tasks` (L51–55) |
-| `create_tasks_batch` | L60–L71 | L61–L63 | `POST /api/tasks/batch` (L58–64) |
-| `update_task` | L73–L87 | L74–L76 | `POST /api/tasks/{id}/update` (L67–71) |
-| `update_tasks_bulk` | L89–L127 | L90–L101 | через `executeTaskIntent` → PHP API |
-| `delete_tasks_bulk` | L129–L150 | L130–L138 | `delete_many` → DELETE по id |
-| `delete_task` | L152–L163 | L153–L155 | `DELETE /api/tasks/{id}` (L74–76) |
+| `list_tasks` | L35–L46 | L37–L39 | `GET /api/tasks` (tasksApi.js L38–40) |
+| `filter_tasks` | L47–L68 | L49–L56 | `GET /api/tasks/filter` (L42–48) |
+| `create_task` | L69–L89 | L71–L78 | `POST /api/tasks` (L51–55) |
+| `create_tasks_batch` | L90–L103 | L92–L94 | `POST /api/tasks/batch` (L58–64) |
+| `update_task` | L104–L121 | L106–L109 | `POST /api/tasks/{id}/update` (L67–71) |
+| `update_tasks_bulk` | L122–L163 | L124–L136 | через `executeTaskIntent` → PHP API |
+| `delete_tasks_bulk` | L164–L187 | L166–L174 | `delete_many` → DELETE по id |
+| `delete_task` | L188–L201 | L190–L192 | `DELETE /api/tasks/{id}` (L74–76) |
 
 **Пример (аналог `tools/api_tool.py:L12–L48`):**
 
-- Объявление: `ai/src/taskTools.js:L41–L58` (`create_task`)
-- Вызов: `ai/src/taskTools.js:L42–L47` → `tasksApi.createTask()` → `ai/src/tasksApi.js:L51–L55`
+- Объявление: `ai/src/taskTools.js:L69–L89` (`create_task`)
+- Вызов: `ai/src/taskTools.js:L71–L78` → `tasksApi.createTask()` → `ai/src/tasksApi.js:L51–L55`
 
 Параллельно тот же REST вызывается без tools из **`ai/src/taskExecutor.js`** (узел `execute` графа) — это подтверждает реальную интеграцию с PHP API.
 
